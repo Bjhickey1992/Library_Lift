@@ -25,7 +25,7 @@ for _k in ("OPENAI_API_KEY", "TMDB_API_KEY", "INTENT_MODEL"):
 
 # Page config
 st.set_page_config(
-    page_title="TakeOne - Monetize Your Library Content",
+    page_title="Library Lift",
     page_icon="🎬",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -215,11 +215,26 @@ st.markdown("""
         padding-top: 2rem;
         padding-bottom: 2rem;
         max-width: 100%;
+        background-color: var(--ivory);
     }
     
-    /* Background: Ivory */
-    .stApp {
-        background: var(--ivory);
+    /* Background: Ivory – force on full app + chat + nav surfaces */
+    html,
+    body,
+    .stApp,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stVerticalBlock"],
+    [data-testid="stHorizontalBlock"],
+    [data-testid="stBottomBlockContainer"],
+    [data-testid="stChat"],
+    [data-testid="stChatMessageContainer"],
+    [data-testid="stChatInput"] {
+        background-color: var(--ivory) !important;
+    }
+
+    /* Ensure all top-level columns (including the Library select row) sit on ivory */
+    [data-testid="stColumn"] {
+        background-color: var(--ivory) !important;
     }
     
     /* Header styling */
@@ -478,12 +493,82 @@ st.markdown("""
         border-color: var(--primary-blue) !important;
         color: var(--primary-blue) !important;
     }
+
+    /* Library select: force light ivory card look (override dark theme) */
+    [data-testid="stSelectbox"] {
+        background-color: var(--ivory) !important;
+        padding: 0.35rem 0.5rem !important;
+    }
+    [data-testid="stSelectbox"] label {
+        color: var(--text-secondary) !important;
+        font-weight: 500 !important;
+    }
+    /* Target only the visible select field, not all children (to avoid menu bleed) */
+    [data-testid="stSelectbox"] > div > div,
+    [data-testid="stSelectbox"] div[role="button"],
+    [data-testid="stSelectbox"] div[data-baseweb="select"] {
+        background-color: var(--ivory-card) !important;
+        color: var(--text-primary) !important;
+        border-radius: 12px !important;
+        border: 1px solid var(--ivory-border) !important;
+        box-shadow: none !important;
+    }
+
+    /* Open dropdown menu: force ivory card instead of dark */
+    [data-baseweb="menu"],
+    [data-baseweb="menu"] ul,
+    [data-baseweb="menu"] li,
+    [data-baseweb="menu"] li * {
+        background-color: var(--ivory-card) !important;
+        color: var(--text-primary) !important;
+        box-shadow: none !important;
+    }
     
     /* Chat message bubbles, inputs, etc. */
     [data-testid="stChatMessage"] {
         background: var(--ivory-card);
         border: 1px solid var(--ivory-border);
         border-radius: 12px;
+    }
+    
+    /* Chat area + input: make it match the light library select look */
+    [data-testid="stChatMessageContainer"] {
+        background-color: var(--ivory);
+        padding-top: 0.5rem;
+    }
+    
+    /* Bar at the bottom that holds the chat input */
+    [data-testid="stChatInput"] {
+        background-color: var(--ivory);
+        border-top: 1px solid var(--ivory-border);
+    }
+    
+    /* The rounded shell around the textarea + send icon */
+    [data-testid="stChatInput"] > div {
+        margin-top: 0.5rem;
+        margin-bottom: 0.75rem;
+        padding: 0.15rem 0.75rem;
+        border-radius: 12px;
+        border: 1px solid var(--ivory-border);
+        background-color: var(--ivory-card);
+    }
+    
+    /* The actual text area */
+    [data-testid="stChatInput"] textarea {
+        background-color: var(--ivory-card);
+        color: var(--text-primary);
+    }
+    
+    /* Keep the send icon simple and flat */
+    [data-testid="stChatInput"] button {
+        background-color: transparent;
+        border: none;
+        box-shadow: none;
+        color: var(--primary-blue);
+    }
+    [data-testid="stChatInput"] button:hover {
+        background-color: transparent;
+        color: #1d4ed8;
     }
     
     [data-testid="stSidebar"] {
@@ -582,7 +667,7 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 
 if "current_tab" not in st.session_state:
-    st.session_state.current_tab = "Dashboard"
+    st.session_state.current_tab = "Recommendations"
 
 # Check initialization
 if not st.session_state.get("initialized", False):
@@ -590,47 +675,30 @@ if not st.session_state.get("initialized", False):
     st.info("Make sure you have API keys configured and data files ready.")
     st.stop()
 
+
 # Header Section
 st.markdown("""
 <div class="header-container">
     <div>
-        <h1 class="logo-text">TakeOne</h1>
-        <p class="tagline">MONETIZE YOUR LIBRARY CONTENT</p>
+        <h1 class="logo-text">Library Lift</h1>
+        <p class="tagline">FILM LIBRARY MONETIZATION DASHBOARD</p>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# Navigation Tabs
-col1, col2, col3, col4, col5 = st.columns([2, 2, 2, 2, 10])
-with col1:
-    if st.button("Dashboard", key="nav_dashboard", use_container_width=True):
-        st.session_state.current_tab = "Dashboard"
-        st.rerun()
-with col2:
-    if st.button("Recommendations", key="nav_recommendations", use_container_width=True):
-        st.session_state.current_tab = "Recommendations"
-        st.rerun()
-with col3:
-    if st.button("OTT Trends", key="nav_ott", use_container_width=True):
-        st.session_state.current_tab = "OTT Trends"
-        st.rerun()
-with col4:
-    if st.button("Market Insights", key="nav_insights", use_container_width=True):
-        st.session_state.current_tab = "Market Insights"
-        st.rerun()
-with col5:
-    st.selectbox(
-        "Library",
-        options=STUDIO_OPTIONS,
-        key="selected_studio",
-        on_change=_on_library_change,
-        help="Switch between Universal and Lionsgate library data/embeddings.",
-    )
+# Top controls: Library select only (no tabs)
+st.selectbox(
+    "Library",
+    options=STUDIO_OPTIONS,
+    key="selected_studio",
+    on_change=_on_library_change,
+    help="Switch between Universal and Lionsgate library data/embeddings.",
+)
 
 st.markdown("<hr style='border-color: #D4D4C8; margin: 1rem 0;'>", unsafe_allow_html=True)
 
-# Main Content based on selected tab
-if st.session_state.current_tab == "Dashboard":
+# Main Content – show Recommendations tab only
+if False:  # Dashboard tab removed
     # Load data for dashboard
     agent = st.session_state.chatbot_agent
     library_df = None
@@ -971,7 +1039,7 @@ if st.session_state.current_tab == "Dashboard":
                 if "error" in result:
                     st.error(result["error"])
                     if "suggestion" in result:
-                        st.info(f"Suggestion: {result['suggestion']}")
+                        st.markdown(f"*Suggestion: {result['suggestion']}*")
                     response_text = result["error"]
                 else:
                     recommendations = result.get("recommendations", [])
@@ -998,7 +1066,7 @@ if st.session_state.current_tab == "Dashboard":
     # Note: If data files are missing, dashboard will show with placeholder data
     # To see real data, run the phase scripts to generate library and exhibition files
 
-elif st.session_state.current_tab == "Recommendations":
+elif st.session_state.current_tab == "Recommendations" or True:
     st.header("📊 Recommendations & Trends Chatbot")
     
     # Sidebar for filters
@@ -1116,7 +1184,7 @@ elif st.session_state.current_tab == "Recommendations":
                     if "error" in result:
                         st.markdown(result["error"])
                         if "suggestion" in result:
-                            st.info(f"💡 **Suggestion:** {result['suggestion']}")
+                            st.markdown(f"*💡 Suggestion: {result['suggestion']}*")
                         # Show instructions for generating embeddings
                         if "embeddings" in result.get("error", "").lower():
                             with st.expander("📝 How to Generate Embeddings", expanded=False):
