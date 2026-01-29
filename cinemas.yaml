@@ -1,0 +1,329 @@
+version: 1
+
+# Add / remove cinemas freely. The agent will scrape ALL enabled cinemas.
+# Tip: Prefer pages that list showtimes / events and include JSON-LD "Event" data.
+#
+# Fields:
+# - id: unique identifier (no spaces)
+# - name: cinema / chain / org
+# - country: ISO 2-letter (US, CA, MX, GB, FR)
+# - city: optional
+# - type: chain | independent | nonprofit
+# - programme_url: URL to scrape
+# - enabled: true/false
+# - scraper: auto | jsonld_events
+cinemas:
+  - id: film_forum_nyc
+    name: Film Forum
+    country: US
+    city: New York, NY
+    type: nonprofit
+    programme_url: https://filmforum.org/now_playing
+    enabled: true
+    scraper: auto
+
+  - id: bfi_southbank
+    name: BFI Southbank
+    country: GB
+    city: London
+    type: nonprofit
+    programme_url: https://whatson.bfi.org.uk/Online/
+    enabled: false
+    scraper: auto
+
+  - id: cinematheque_francaise
+    name: La Cinémathèque française
+    country: FR
+    city: Paris
+    type: nonprofit
+    programme_url: https://www.cinematheque.fr/film/
+    enabled: false
+    scraper: auto
+
+  - id: tiff_lightbox
+    name: TIFF Lightbox
+    country: CA
+    city: Toronto, ON
+    type: nonprofit
+    programme_url: https://www.tiff.net/events
+    enabled: false
+    scraper: auto
+
+  - id: american_cinematheque_la
+    name: American Cinematheque
+    country: US
+    city: Los Angeles, CA
+    type: nonprofit
+    programme_url: https://www.americancinematheque.com/
+    enabled: true
+    scraper: auto
+
+  - id: ifc_center_nyc
+    name: IFC Center
+    country: US
+    city: New York, NY
+    type: independent
+    programme_url: https://www.ifccenter.com/
+    enabled: true
+    scraper: auto
+
+  # Additional Los Angeles cinemas
+  - id: laemmle_theatres
+    name: Laemmle Theatres
+    country: US
+    city: Los Angeles, CA
+    type: independent
+    programme_url: https://www.laemmle.com/
+    enabled: true
+    scraper: auto
+
+  - id: new_bev_cinema
+    name: New Beverly Cinema
+    country: US
+    city: Los Angeles, CA
+    type: independent
+    programme_url: https://thenewbev.com/
+    enabled: true
+    scraper: auto
+
+  - id: vista_theatre_la
+    name: Vista Theatre
+    country: US
+    city: Los Angeles, CA
+    type: independent
+    programme_url: https://www.vistatheaterhollywood.com/schedule/
+    enabled: true
+    scraper: auto
+
+  # Additional New York cinemas
+  - id: metrograph_nyc
+    name: Metrograph
+    country: US
+    city: New York, NY
+    type: independent
+    programme_url: https://metrograph.com/calendar/
+    enabled: true
+    scraper: auto
+
+  - id: nitehawk_cinema_nyc
+    name: Nitehawk Cinema
+    country: US
+    city: New York, NY
+    type: independent
+    programme_url: https://nitehawkcinema.com/prospectpark/
+    enabled: true
+    scraper: auto
+
+  - id: film_at_lincoln_center
+    name: Film at Lincoln Center
+    country: US
+    city: New York, NY
+    type: nonprofit
+    programme_url: https://www.filmlinc.org/films/
+    enabled: true
+    scraper: auto
+
+  - id: anthology_film_archives
+    name: Anthology Film Archives
+    country: US
+    city: New York, NY
+    type: nonprofit
+    programme_url: https://anthologyfilmarchives.org/film_screenings
+    enabled: true
+    scraper: auto
+
+  - id: museum_of_moving_image
+    name: Museum of the Moving Image
+    country: US
+    city: New York, NY
+    type: nonprofit
+    programme_url: https://www.movingimage.us/visit/film-screenings/
+    enabled: false
+    scraper: auto
+
+  # Additional Chicago cinemas
+  - id: facets_chicago
+    name: FACETS
+    country: US
+    city: Chicago, IL
+    type: nonprofit
+    programme_url: https://www.facets.org/cinematheque/
+    enabled: false
+    scraper: auto
+
+  - id: gene_siskel_film_center
+    name: Gene Siskel Film Center
+    country: US
+    city: Chicago, IL
+    type: nonprofit
+    programme_url: https://www.siskelfilmcenter.org/films
+    enabled: false
+    scraper: auto
+
+  - id: doc_films_chicago
+    name: Doc Films
+    country: US
+    city: Chicago, IL
+    type: nonprofit
+    programme_url: https://docfilms.uchicago.edu/
+    enabled: false
+    scraper: auto
+
+  # Additional San Francisco cinemas
+  - id: castro_theatre_sf
+    name: Castro Theatre
+    country: US
+    city: San Francisco, CA
+    type: independent
+    programme_url: https://castrotheatre.com/
+    enabled: false
+    scraper: auto
+
+  - id: alamo_drafthouse_sf
+    name: Alamo Drafthouse (SF)
+    country: US
+    city: San Francisco, CA
+    type: chain
+    programme_url: https://drafthouse.com/san-francisco/showtimes
+    enabled: false
+    scraper: auto
+
+  - id: sf_film_society
+    name: SFFILM
+    country: US
+    city: San Francisco, CA
+    type: nonprofit
+    programme_url: https://sffilm.org/events/
+    enabled: false
+    scraper: auto
+
+  # London cinemas
+  - id: bfi_southbank
+    name: BFI Southbank
+    country: GB
+    city: London
+    type: nonprofit
+    programme_url: https://whatson.bfi.org.uk/
+    enabled: true
+    scraper: auto
+
+  - id: curzon_cinemas_london
+    name: Curzon Cinemas
+    country: GB
+    city: London
+    type: independent
+    programme_url: https://www.curzon.org.uk/calendar/
+    enabled: true
+    scraper: auto
+
+  - id: ica_london
+    name: ICA London
+    country: GB
+    city: London
+    type: nonprofit
+    programme_url: https://www.ica.art/films
+    enabled: false
+    scraper: auto
+
+  - id: barbican_cinema
+    name: Barbican Cinema
+    country: GB
+    city: London
+    type: nonprofit
+    programme_url: https://www.barbican.org.uk/whats-on/cinema
+    enabled: false
+    scraper: auto
+
+  - id: picturehouse_cinemas_london
+    name: Picturehouse Cinemas
+    country: GB
+    city: London
+    type: independent
+    programme_url: https://www.picturehouses.com/whats-on
+    enabled: false
+    scraper: auto
+
+  # Paris cinemas
+  - id: cinematheque_francaise
+    name: La Cinémathèque française
+    country: FR
+    city: Paris
+    type: nonprofit
+    programme_url: https://www.cinematheque.fr/programme-du-jour.html
+    enabled: true
+    scraper: auto
+
+  - id: mk2_cinemas_paris
+    name: MK2 Cinemas
+    country: FR
+    city: Paris
+    type: independent
+    programme_url: https://www.mk2.com/films
+    enabled: true
+    scraper: auto
+
+  - id: forum_des_images_paris
+    name: Forum des Images
+    country: FR
+    city: Paris
+    type: nonprofit
+    programme_url: https://www.forumdesimages.fr/programmation
+    enabled: false
+    scraper: auto
+
+  - id: cinema_du_pantheon
+    name: Cinéma du Panthéon
+    country: FR
+    city: Paris
+    type: independent
+    programme_url: https://www.cinema-pantheon.fr/
+    enabled: false
+    scraper: auto
+
+  # Mexico City cinemas
+  - id: cineteca_nacional_mx
+    name: Cineteca Nacional
+    country: MX
+    city: Mexico City
+    type: nonprofit
+    programme_url: https://www.cinetecanacional.net/cartelera
+    enabled: false
+    scraper: auto
+
+  - id: cineteca_casa_del_lago
+    name: Cineteca Casa del Lago
+    country: MX
+    city: Mexico City
+    type: nonprofit
+    programme_url: https://www.casadelago.unam.mx/cineteca
+    enabled: false
+    scraper: auto
+
+  - id: cineteca_manuel_rodriguez
+    name: Cineteca Manuel Rodríguez
+    country: MX
+    city: Mexico City
+    type: nonprofit
+    programme_url: https://www.cineteca.unam.mx/
+    enabled: false
+    scraper: auto
+
+  # Chain examples (these sites are often JS-heavy; you may need the optional Playwright mode)
+  - id: odeon_uk
+    name: ODEON Cinemas
+    country: GB
+    city: (multiple)
+    type: chain
+    programme_url: https://www.odeon.co.uk/films/
+    enabled: false
+    scraper: auto
+
+  - id: pathe_fr
+    name: Pathé
+    country: FR
+    city: (multiple)
+    type: chain
+    programme_url: https://www.pathe.fr/films
+    enabled: false
+    scraper: auto
+
