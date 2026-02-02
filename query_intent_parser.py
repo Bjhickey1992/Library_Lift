@@ -28,7 +28,7 @@ class QueryIntent:
     director_weight: float = 0.2  # Default 20%
     writer_weight: float = 0.15   # Default 15%
     cast_weight: float = 0.15     # Default 15%
-    thematic_weight: float = 0.3  # Default 30%
+    thematic_weight: float = 0.25  # Default 25% (reduced to allow higher need weight)
     stylistic_weight: float = 0.2 # Default 20%
     
     # Filters

@@ -1311,6 +1311,8 @@ elif st.session_state.current_tab == "Recommendations" or True:
                             st.info(result["territory_fallback_note"])
                         if result.get("genre_fallback_note"):
                             st.info(result["genre_fallback_note"])
+                        if result.get("unstructured_fallback_note"):
+                            st.info(result["unstructured_fallback_note"])
                         
                         # Trend expander (summary only; no film list)
                         if query_type == "trend" and trends:

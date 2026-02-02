@@ -10,6 +10,7 @@ import re
 import pandas as pd
 import numpy as np
 from pathlib import Path
+from typing import Optional
 
 from config import get_anthropic_api_key, get_openai_api_key
 
@@ -59,11 +60,21 @@ def _get_need_for_title(client, title: str) -> str:
         return ""
 
 
-def add_need_to_dataframe(df: pd.DataFrame, title_col: str, client, label: str) -> pd.DataFrame:
-    """Add or fill 'need' column using Claude. title_col is the column name for the film title."""
+def add_need_to_dataframe(
+    df: pd.DataFrame,
+    title_col: str,
+    client,
+    label: str,
+    save_path: Optional[Path] = None,
+    save_every: int = 0,
+) -> pd.DataFrame:
+    """Add or fill 'need' column using Claude. title_col is the column name for the film title.
+    If save_path and save_every > 0, save df to save_path every save_every filled rows (for resume).
+    """
     if "need" not in df.columns:
         df["need"] = ""
     n = len(df)
+    filled_since_save = 0
     for i, (idx, row) in enumerate(df.iterrows()):
         if pd.notna(row.get("need")) and str(row["need"]).strip():
             continue
@@ -72,9 +83,15 @@ def add_need_to_dataframe(df: pd.DataFrame, title_col: str, client, label: str) 
             df.at[idx, "need"] = ""
             continue
         title = str(title).strip()
-        print(f"  [{label}] {i+1}/{n}: {title[:50]}...", flush=True)
+        # Avoid UnicodeEncodeError on Windows when title has non-ASCII chars
+        safe_title = title[:50].encode("ascii", errors="replace").decode("ascii")
+        print(f"  [{label}] {i+1}/{n}: {safe_title}...", flush=True)
         need = _get_need_for_title(client, title)
         df.at[idx, "need"] = need
+        filled_since_save += 1
+        if save_path and save_every and filled_since_save >= save_every:
+            df.to_excel(save_path, index=False)
+            filled_since_save = 0
     return df
 
 
@@ -105,7 +122,10 @@ def main():
 
     print("\n2. Adding 'need' to exhibitions...", flush=True)
     ex_df = pd.read_excel(ex_path)
-    ex_df = add_need_to_dataframe(ex_df, "title", claude, "exhibitions")
+    ex_df = add_need_to_dataframe(
+        ex_df, "title", claude, "exhibitions",
+        save_path=ex_path, save_every=50,
+    )
     ex_df.to_excel(ex_path, index=False)
     print(f"   Saved {ex_path}", flush=True)
 

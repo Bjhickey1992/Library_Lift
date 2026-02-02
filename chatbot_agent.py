@@ -346,6 +346,18 @@ class ChatbotAgent:
                     "this in plot, keywords, or themes."
                 )
                 print(f"[ChatbotAgent] Genre fallback: {len(filtered_library_df)} films match text terms (from {len(filtered_no_genre)} without genre filter)")
+        unstructured_fallback_note: Optional[str] = None
+        if len(filtered_library_df) == 0:
+            # Unstructured fallback: match query terms against need, overview, keywords, themes, title
+            # (e.g. "edgy art-house movies" -> terms in need/overview surface relevant titles; scoring still enforces min_exhibition_similarity >= 0.5)
+            unstructured_candidates = self._filter_library_by_unstructured_query(library_df, query)
+            if len(unstructured_candidates) > 0:
+                filtered_library_df = unstructured_candidates
+                unstructured_fallback_note = (
+                    "No exact match to your filters; showing titles that match your wording in plot, themes, or viewer needs. "
+                    "Only recommendations with strong exhibition fit (≥0.5) are included."
+                )
+                print(f"[ChatbotAgent] Unstructured fallback: {len(filtered_library_df)} films match query terms in text/need (from {len(library_df)} total)")
         if len(filtered_library_df) == 0:
             raw = "No library films match the specified filters."
             intent_sum = self._intent_summary(intent)
@@ -512,6 +524,8 @@ class ChatbotAgent:
             out["territory_fallback_note"] = territory_fallback_note
         if genre_fallback_note:
             out["genre_fallback_note"] = genre_fallback_note
+        if unstructured_fallback_note:
+            out["unstructured_fallback_note"] = unstructured_fallback_note
         return out
     
     def _apply_column_filters_to_df(self, df: pd.DataFrame, column_filters: Optional[Dict[str, Any]]) -> pd.DataFrame:
@@ -573,14 +587,14 @@ class ChatbotAgent:
     def _filter_library_by_text_terms(
         self, library_df: pd.DataFrame, terms: List[str]
     ) -> pd.DataFrame:
-        """Filter library to rows where any of overview, keywords, thematic_descriptors (or title) contains any of the given terms (substring, case-insensitive). Used when genre filter yields 0 (e.g. 'spy' is not a genre but appears in plot/keywords)."""
+        """Filter library to rows where any of overview, keywords, thematic_descriptors, need (or title) contains any of the given terms (substring, case-insensitive). Used when genre filter yields 0 (e.g. 'spy' is not a genre but appears in plot/keywords/need)."""
         if not terms:
             return library_df
         terms_clean = [str(t).strip().lower() for t in terms if t and str(t).strip()]
         if not terms_clean:
             return library_df
         pattern = "|".join(re.escape(t) for t in terms_clean)
-        text_columns = ["overview", "keywords", "thematic_descriptors", "stylistic_descriptors", "title"]
+        text_columns = ["overview", "keywords", "thematic_descriptors", "stylistic_descriptors", "need", "title"]
         mask = pd.Series(False, index=library_df.index)
         for col in text_columns:
             if col not in library_df.columns:
@@ -588,6 +602,25 @@ class ChatbotAgent:
             ser = library_df[col].astype(str).str.lower()
             mask = mask | ser.str.contains(pattern, na=False)
         return library_df[mask]
+
+    # Stopwords to drop when matching unstructured query to need/overview/etc.
+    _UNSTRUCTURED_STOPWORDS = frozenset({
+        "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with",
+        "by", "from", "as", "is", "was", "are", "were", "be", "been", "being", "have", "has",
+        "had", "do", "does", "did", "will", "would", "could", "should", "may", "might",
+        "can", "this", "that", "these", "those", "it", "its", "we", "our", "you", "your",
+        "they", "them", "how", "what", "when", "where", "which", "who", "why",
+    })
+
+    def _filter_library_by_unstructured_query(
+        self, library_df: pd.DataFrame, query: str
+    ) -> pd.DataFrame:
+        """When structured filters yield 0, match query terms (minus stopwords) against need, overview, keywords, thematic/stylistic descriptors, title. Lets vague prompts (e.g. 'edgy art-house movies') surface titles via unstructured associations in need. Scoring and min_exhibition_similarity still apply to avoid dubious matches."""
+        terms = re.findall(r"[a-z0-9]+", query.lower())
+        terms_clean = [t for t in terms if len(t) >= 2 and t not in self._UNSTRUCTURED_STOPWORDS][:15]
+        if not terms_clean:
+            return library_df
+        return self._filter_library_by_text_terms(library_df, terms_clean)
 
     def _apply_library_filters(self, library_df: pd.DataFrame, intent: QueryIntent) -> pd.DataFrame:
         """Apply filters to library DataFrame based on query intent."""
@@ -813,6 +846,27 @@ class ChatbotAgent:
         
         return filtered_df
     
+    def _emphasized_match_factors(self, intent: QueryIntent) -> List[str]:
+        """Return list of match factors that were emphasized (boosted weights) in the user query."""
+        defaults = {"director": 0.2, "writer": 0.15, "cast": 0.15, "thematic": 0.25, "stylistic": 0.2}
+        emphasized = []
+        if getattr(intent, "director_weight", 0.2) > defaults["director"]:
+            emphasized.append("director")
+        if getattr(intent, "writer_weight", 0.15) > defaults["writer"]:
+            emphasized.append("writer")
+        if getattr(intent, "cast_weight", 0.15) > defaults["cast"]:
+            emphasized.append("cast")
+        if getattr(intent, "thematic_weight", 0.25) > defaults["thematic"]:
+            emphasized.append("thematic")
+        if getattr(intent, "stylistic_weight", 0.2) > defaults["stylistic"]:
+            emphasized.append("stylistic")
+        cw = getattr(intent, "column_weights", None) or {}
+        for col in ("emotional_tone", "need", "genres", "release_year"):
+            if col in cw and cw[col] > 0:
+                label = "emotional tone" if col == "emotional_tone" else "viewer needs/desires" if col == "need" else col
+                emphasized.append(label)
+        return emphasized
+
     def _generate_dynamic_reasoning(
         self,
         library_film: Dict,
@@ -824,7 +878,7 @@ class ChatbotAgent:
         query_similarity: float = 0.0,
         exhibition_matches: Optional[List[Dict]] = None,
     ) -> str:
-        """Generate reasoning: (1) why recommended based on user query, (2) exhibition titles it has relevance for, (3) brief market context."""
+        """Generate reasoning: (1) why recommended based on user query, (2) exhibition titles it has relevance for, (3) brief market context. When the user emphasized specific match factors (boosted weights), reasoning must address how this film matches on those factors."""
         if not self.openai_client:
             return f"Recommended based on similarity score: {similarity:.3f}"
         exhibition_matches = exhibition_matches or []
@@ -840,6 +894,8 @@ class ChatbotAgent:
         if intent.match_to_specific_film:
             intent_bits.append(f"match to: {intent.match_to_specific_film}")
         intent_str = "; ".join(intent_bits) if intent_bits else "general relevance"
+        emphasized = self._emphasized_match_factors(intent)
+        emphasized_str = ", ".join(emphasized) if emphasized else ""
         ex_list = "\n".join(
             f"- {m.get('title', '')} (similarity {m.get('similarity', 0):.2f})"
             for m in exhibition_matches if m.get("title")
@@ -848,12 +904,23 @@ class ChatbotAgent:
             f"User query: \"{query}\"\n"
             f"Parsed intent: {intent_str}\n"
             f"Query-to-film relevance: {query_similarity:.2f}. Exhibition match score: {similarity:.2f}.\n\n"
+        )
+        if emphasized_str:
+            prompt += (
+                f"The user's query emphasized these match factors (weights were boosted): {emphasized_str}. "
+                "In your reasoning you MUST explicitly address how this library film matches the exhibition (or the user's ask) on these factors.\n\n"
+            )
+        prompt += (
             f"Library Film:\n{lib_text}\n\n"
             f"Primary exhibition match (currently in theaters):\n{ex_text}\n\n"
             f"Other exhibition titles this library film has relevance for:\n{ex_list}\n\n"
             "Write a short recommendation overview (2-4 sentences). Structure strictly:\n\n"
             "1. FIRST: Why this film is being recommended based on the user's query. "
             "Connect what the user asked for (genres, themes, timing, etc.) to this title. "
+        )
+        if emphasized_str:
+            prompt += "Explicitly explain how it matches on the emphasized factors listed above. "
+        prompt += (
             "This must come first.\n\n"
             "2. THEN: Which exhibition titles it has relevance for. "
             "Name the primary match and 1-2 others from the list if relevant; briefly say what drives the match (genres, themes, personnel, style).\n\n"
