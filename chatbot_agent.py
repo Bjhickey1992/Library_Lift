@@ -7,6 +7,7 @@ import os
 import re
 import pandas as pd
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Optional, Tuple, Any
 from datetime import datetime, timedelta
 import json
@@ -471,24 +472,33 @@ class ChatbotAgent:
             strategy=getattr(self, "_scoring_strategy", "legacy"),
         )
 
-        # Generate recommendations with reasoning (query-based + exhibition relevance)
+        # Generate recommendations with reasoning and posters in parallel (major latency win)
         recommendations = []
-        for match in unique_matches[:top_n]:
+        matches_slice = unique_matches[:top_n]
+        max_workers = min(10, max(2, len(matches_slice) * 2))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            reasoning_futures = [
+                executor.submit(
+                    self._generate_dynamic_reasoning,
+                    match["library_film"],
+                    match["exhibition_film"],
+                    match["exhibition_similarity"],
+                    intent,
+                    query=query,
+                    query_similarity=match["query_similarity"],
+                    exhibition_matches=match.get("exhibition_matches") or [],
+                )
+                for match in matches_slice
+            ]
+            poster_futures = [
+                executor.submit(self._get_poster_url, match["library_film"].get("tmdb_id"))
+                for match in matches_slice
+            ]
+            reasonings = [f.result() for f in reasoning_futures]
+            poster_urls = [f.result() for f in poster_futures]
+        for i, match in enumerate(matches_slice):
             lib = match["library_film"]
             ex = match["exhibition_film"]
-            reasoning = self._generate_dynamic_reasoning(
-                lib,
-                ex,
-                match["exhibition_similarity"],
-                intent,
-                query=query,
-                query_similarity=match["query_similarity"],
-                exhibition_matches=match.get("exhibition_matches") or [],
-            )
-            
-            # Get poster
-            poster_url = self._get_poster_url(lib.get("tmdb_id"))
-            
             recommendations.append({
                 "title": lib.get("title", ""),
                 "year": lib.get("release_year", ""),
@@ -496,7 +506,6 @@ class ChatbotAgent:
                 "writers": lib.get("writers", ""),
                 "cast": lib.get("cast", ""),
                 "genres": lib.get("genres", ""),
-                # Composite score used for ranking (query relevance + exhibition similarity)
                 "relevance_score": match["relevance_score"],
                 "exhibition_similarity": match["exhibition_similarity"],
                 "query_similarity": match["query_similarity"],
@@ -507,8 +516,8 @@ class ChatbotAgent:
                 "territory": intent.territory or "All",
                 "themes": lib.get("thematic_descriptors", ""),
                 "style": lib.get("stylistic_descriptors", ""),
-                "reasoning": reasoning,
-                "poster_url": poster_url,
+                "reasoning": reasonings[i],
+                "poster_url": poster_urls[i],
                 "tmdb_id": lib.get("tmdb_id"),
             })
         

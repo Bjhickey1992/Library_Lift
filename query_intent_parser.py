@@ -1,7 +1,7 @@
 """
 Query Intent Parser for Dynamic Film Matching
 Extracts intent from user queries to adjust matching weights and filters.
-Uses a capable LLM (gpt-4o by default) for accurate intent interpretation.
+Uses a capable LLM (gpt-4o-mini by default for latency; override via config) for intent interpretation.
 """
 
 import re
@@ -18,7 +18,7 @@ try:
     from config import get_intent_model
 except ImportError:
     def get_intent_model() -> str:
-        return "gpt-4o"
+        return "gpt-4o-mini"
 
 
 @dataclass

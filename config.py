@@ -80,7 +80,7 @@ def get_anthropic_api_key():
 
 def get_intent_model() -> str:
     """
-    Model used for query intent parsing. Use a capable model for accurate intent extraction.
-    Default: gpt-4o. Override via INTENT_MODEL env var (e.g. gpt-4o, gpt-4-turbo, gpt-4o-mini).
+    Model used for query intent parsing. Default: gpt-4o-mini for lower latency.
+    Override via INTENT_MODEL env var (e.g. gpt-4o-mini, gpt-4o, gpt-4-turbo).
     """
-    return os.getenv("INTENT_MODEL", "gpt-4o").strip() or "gpt-4o"
+    return os.getenv("INTENT_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
