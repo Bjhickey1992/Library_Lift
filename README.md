@@ -1,69 +1,75 @@
-# Film Library Cinema Agent
+# Library Lift – Film Library Recommendation Dashboard
 
-An intelligent agent that matches studio film libraries with upcoming cinema exhibition schedules using enhanced semantic similarity analysis.
-
-## Overview
-
-This agent:
-1. **Builds studio film libraries** from TMDB API with semantic enrichment
-2. **Scrapes cinema exhibition schedules** from cinema websites
-3. **Matches films** using enhanced multi-dimensional similarity analysis
+An intelligent dashboard that matches studio film libraries with upcoming cinema exhibitions using semantic similarity. Ask questions in natural language and get pointed recommendations with reasoning.
 
 ## Features
 
-- **Semantic Enrichment**: LLM-generated thematic, stylistic, and emotional descriptors
-- **Enhanced Similarity**: Multi-dimensional matching (thematic, stylistic, personnel)
-- **Progressive Processing**: Handles large datasets efficiently
-- **Parallel Processing**: Fast LLM reasoning generation
+- **Streamlit dashboard**: Recommendations and trends tabs; natural-language queries; “More like this” and refinement.
+- **Intent-aware matching**: Parses territory, venue, genre, decade, tone, and “nothing like X” from your questions.
+- **Pre-computed embeddings**: Library and exhibition embeddings (with thematic, stylistic, emotional, and “need” fields) for fast responses.
+- **Data pipeline**: Phase 1 (library), Phase 2 (exhibitions + enrichment), Phase 3 (matching); optional weekly refresh.
 
 ## Quick Start
 
-### 1. Install Dependencies
+### 1. Install dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Set API Keys
-```bash
-# Windows PowerShell
-$env:TMDB_API_KEY = "your_key"
-$env:OPENAI_API_KEY = "your_key"
+### 2. Set API keys
 
-# macOS/Linux
-export TMDB_API_KEY="your_key"
-export OPENAI_API_KEY="your_key"
+Create a `.env` file in the project root (see [SETUP_API_KEYS.md](SETUP_API_KEYS.md)):
+
+```
+TMDB_API_KEY=your_key
+OPENAI_API_KEY=your_key
 ```
 
-### 3. Run Phases
+Optional: `ANTHROPIC_API_KEY` for “need” field generation; `INTENT_MODEL` to override the intent model (default: gpt-4o-mini).
 
-**Phase 1: Build Library**
+### 3. Run the app
+
 ```bash
-python run_phase1.py
+streamlit run streamlit_app.py
 ```
 
-**Phase 2: Enrich Exhibitions**
-```bash
-python run_phase2_enrich_existing.py
-```
+The app runs at `http://localhost:8501`. You need pre-built data and embeddings (see **Data pipeline** below).
 
-**Phase 3: Generate Matches**
-```bash
-python run_phase3_matching.py
-```
+## Data pipeline
 
-## Project Structure
+If you’re starting from scratch or refreshing data:
 
-- `film_agent.py` - Main agent implementation
-- `cinema_scrapers.py` - Cinema scraping utilities
-- `cinemas.yaml` - Cinema configuration
-- `run_phase*.py` - Phase execution scripts
+| Step | Script | Purpose |
+|------|--------|---------|
+| Phase 1 | `run_phase1.py` | Build studio library from TMDB |
+| Phase 2a | `run_phase2_exhibitions.py` | Scrape cinema exhibitions, add “need”, generate exhibition embeddings |
+| Phase 2b | `run_phase2_enrich_existing.py` | Enrich existing library (keywords, descriptors) |
+| Library embeddings | `generate_library_embeddings.py` | Build library embeddings (run after library + optional `add_need_field.py`) |
+| Phase 3 | `run_phase3_matching.py` | Generate match outputs (optional; dashboard uses embeddings directly) |
+
+See [QUICK_START.md](QUICK_START.md) for a short walkthrough. For deployment and secrets (e.g. Streamlit Cloud), see [SETUP_API_KEYS.md](SETUP_API_KEYS.md).
+
+## Project structure
+
+| Path | Purpose |
+|------|---------|
+| `streamlit_app.py` | Main dashboard (recommendations, trends) |
+| `chatbot_agent.py` | Query handling, intent, filtering, scoring |
+| `query_intent_parser.py` | Intent parsing (filters, weights, negative filters, refinement) |
+| `recommendation_scoring.py` | Ranking (legacy and deep gate/tie/nudge strategies) |
+| `film_agent.py` | Film/exhibition data, TMDB, embeddings, similarity |
+| `config.py` | API keys and config (env / `.env`) |
+| `cinema_scrapers.py` | Cinema site scraping |
+| `cinemas.yaml` | Cinema list and URLs |
+| `run_phase*.py` | Data pipeline scripts |
+| `generate_*_embeddings.py` | Embedding generation |
 
 ## Documentation
 
-- `COLLABORATION_GUIDE.md` - Team onboarding guide
-- `SESSION_SUMMARY.md` - Recent improvements
-- `SIMILARITY_IMPROVEMENTS.md` - Similarity framework details
-- `ENHANCED_SIMILARITY_FRAMEWORK.md` - Framework design
+- **[SETUP_API_KEYS.md](SETUP_API_KEYS.md)** – API keys (local `.env` and Streamlit Cloud Secrets)
+- **[QUICK_START.md](QUICK_START.md)** – Install, keys, and first run
+- **[CHATBOT_SETUP.md](CHATBOT_SETUP.md)** – How the Streamlit recommendation app works
 
 ## Requirements
 
@@ -74,7 +80,3 @@ python run_phase3_matching.py
 ## License
 
 [Add your license here]
-
-## Contributors
-
-[Add team members here]

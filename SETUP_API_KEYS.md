@@ -75,12 +75,23 @@ export ANTHROPIC_API_KEY="your_anthropic_key"
 4. Set `ANTHROPIC_API_KEY` in your environment or `.env`
 5. Required only when running `add_need_field.py` (Lionsgate library and exhibitions viewer-needs)
 
-## Security Notes
+## Streamlit Cloud deployment
 
-- ✅ **DO**: Use `.env` file (gitignored)
-- ✅ **DO**: Share `.env.example` (template only)
-- ❌ **DON'T**: Commit `.env` to version control
-- ❌ **DON'T**: Share your actual API keys
+When deploying to **Streamlit Community Cloud**, the app does not read `.env` from the repo. Add secrets in the Cloud dashboard:
+
+1. Open your app on share.streamlit.io → **Settings** (or **Manage app**) → **Secrets**.
+2. Add key-value pairs, e.g.:
+   - `OPENAI_API_KEY` = your OpenAI key
+   - `TMDB_API_KEY` = your TMDB key
+   - Optionally: `INTENT_MODEL` = `gpt-4o-mini` (or another model)
+
+The app copies these into the environment so the rest of the code works unchanged. Never commit real keys to the repository.
+
+## Security notes
+
+- ✅ **DO**: Use `.env` file locally (gitignored)
+- ✅ **DO**: Use Streamlit Cloud Secrets for deployed apps
+- ❌ **DON'T**: Commit `.env` or real keys to version control
 - ❌ **DON'T**: Hardcode keys in source code
 
 ## Verification
