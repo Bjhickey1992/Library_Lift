@@ -23,7 +23,9 @@
    ```
    TMDB_API_KEY=your_actual_tmdb_key_here
    OPENAI_API_KEY=your_actual_openai_key_here
+   ANTHROPIC_API_KEY=your_anthropic_key_here
    ```
+   `ANTHROPIC_API_KEY` is used only for generating the "need" field (viewer desires/needs) for Lionsgate library and exhibitions via Claude.
 
 4. **Done!** The scripts will automatically load keys from `.env`
 
@@ -33,18 +35,21 @@
 ```powershell
 $env:TMDB_API_KEY = "your_tmdb_key"
 $env:OPENAI_API_KEY = "your_openai_key"
+$env:ANTHROPIC_API_KEY = "your_anthropic_key"
 ```
 
 **Windows (Command Prompt):**
 ```cmd
 set TMDB_API_KEY=your_tmdb_key
 set OPENAI_API_KEY=your_openai_key
+set ANTHROPIC_API_KEY=your_anthropic_key
 ```
 
 **macOS/Linux:**
 ```bash
 export TMDB_API_KEY="your_tmdb_key"
 export OPENAI_API_KEY="your_openai_key"
+export ANTHROPIC_API_KEY="your_anthropic_key"
 ```
 
 ## Getting API Keys
@@ -62,6 +67,13 @@ export OPENAI_API_KEY="your_openai_key"
 3. Go to API Keys section
 4. Create a new secret key
 5. Copy your API key (starts with `sk-`)
+
+### Anthropic API Key (optional – for "need" field generation)
+1. Go to https://console.anthropic.com/
+2. Create an account or sign in
+3. Create an API key
+4. Set `ANTHROPIC_API_KEY` in your environment or `.env`
+5. Required only when running `add_need_field.py` (Lionsgate library and exhibitions viewer-needs)
 
 ## Security Notes
 

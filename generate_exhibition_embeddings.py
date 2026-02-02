@@ -64,6 +64,8 @@ for _, row in ex_df.iterrows():
         parts.append(f"Style: {row['stylistic_descriptors']}")
     if pd.notna(row.get("emotional_tone")):
         parts.append(f"Tone: {row['emotional_tone']}")
+    if pd.notna(row.get("need")):
+        parts.append(f"Viewer needs: {row['need']}")
     film_texts.append("\n".join(parts))
 
 # Generate embeddings in batches

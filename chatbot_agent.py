@@ -16,6 +16,7 @@ from dataclasses import replace
 from film_agent import MatchingAgent, TMDbClient
 from config import get_openai_api_key, get_tmdb_api_key
 from query_intent_parser import QueryIntentParser, QueryIntent
+from recommendation_scoring import compute_ranked_matches
 
 try:
     from openai import OpenAI
@@ -66,6 +67,9 @@ class ChatbotAgent:
             self.tmdb_client = TMDbClient(tmdb_api_key=get_tmdb_api_key())
         except Exception:
             self.tmdb_client = None
+
+        # Scoring strategy: "legacy" (composite query+exhibition) or "deep_gate_tie_nudge" (default: deep for non-obvious matches)
+        self._scoring_strategy = os.environ.get("RECOMMENDATION_SCORING_STRATEGY", "deep_gate_tie_nudge") or "deep_gate_tie_nudge"
     
     def _load_library(self) -> pd.DataFrame:
         """Load library data (cached)."""
@@ -440,193 +444,21 @@ class ChatbotAgent:
         lib_rows = filtered_library_df.to_dict(orient="records")
         ex_rows = filtered_exhibitions_df.to_dict(orient="records")
 
-        # ----------------------------
-        # Dynamic scoring improvements
-        # ----------------------------
-        # 1) Exclude exact "same film" matches (e.g. Flash Gordon vs Flash Gordon) from dominating.
-        # 2) Add query-to-library relevance (query embedding vs library embeddings) so theme/intent can outrank
-        #    simple "same title currently in exhibitions" matches.
+        # Modular scoring: legacy (composite query+exhibition) or deep_gate_tie_nudge
+        unique_matches = compute_ranked_matches(
+            lib_rows,
+            ex_rows,
+            filtered_lib_embeddings,
+            filtered_ex_embeddings,
+            query,
+            intent,
+            self.matching_agent,
+            self.openai_client,
+            top_n=top_n,
+            min_exhibition_similarity=0.5,
+            strategy=getattr(self, "_scoring_strategy", "legacy"),
+        )
 
-        def _normalize_title(t: str) -> str:
-            t = (t or "").lower()
-            t = re.sub(r"[^a-z0-9\s]", " ", t)
-            t = re.sub(r"\s+", " ", t).strip()
-            return t
-
-        def _title_signature(t: str) -> str:
-            """Coarse grouping to avoid franchise spam (e.g. multiple Flash Gordon titles)."""
-            words = _normalize_title(t).split()
-            if not words:
-                return ""
-            if words[0] == "the":
-                return " ".join(words[:3])
-            return " ".join(words[:2])
-
-        def _is_exact_same_film(lib: Dict, ex: Dict) -> bool:
-            lib_id = lib.get("tmdb_id")
-            ex_id = ex.get("tmdb_id")
-            if lib_id and ex_id and str(lib_id).isdigit() and str(ex_id).isdigit():
-                try:
-                    return int(lib_id) == int(ex_id)
-                except Exception:
-                    pass
-            # Fallback: exact title + year
-            lib_title = _normalize_title(lib.get("title", ""))
-            ex_title = _normalize_title(ex.get("title", ""))
-            lib_year = str(lib.get("release_year") or "").strip()
-            ex_year = str(ex.get("release_year") or "").strip()
-            return bool(lib_title and ex_title and lib_title == ex_title and lib_year and ex_year and lib_year == ex_year)
-
-        # Normalize embeddings once for fast cosine similarity
-        lib_norm = filtered_lib_embeddings / (np.linalg.norm(filtered_lib_embeddings, axis=1, keepdims=True) + 1e-8)
-        ex_norm = filtered_ex_embeddings / (np.linalg.norm(filtered_ex_embeddings, axis=1, keepdims=True) + 1e-8)
-        base_matrix = np.dot(ex_norm, lib_norm.T)  # (ex, lib)
-
-        # Query-to-library relevance (0..1)
-        query_sims = np.zeros(len(lib_rows), dtype=float)
-        if self.openai_client:
-            try:
-                q_emb_resp = self.openai_client.embeddings.create(
-                    model="text-embedding-3-small",
-                    input=query,
-                    dimensions=1536,
-                )
-                q_vec = np.array(q_emb_resp.data[0].embedding, dtype=float)
-                q_norm = q_vec / (np.linalg.norm(q_vec) + 1e-8)
-                q_cos = np.dot(lib_norm, q_norm)  # [-1, 1]
-                query_sims = (q_cos + 1.0) / 2.0  # -> [0, 1]
-            except Exception as e:
-                print(f"[ChatbotAgent] Warning: query embedding failed: {e}")
-
-        # Weight query vs exhibition relevance by intent
-        q_lower = query.lower()
-        w_query = 0.8  # Default: query intent has strong weight
-        # When user is explicitly matching to a specific exhibition title, emphasize exhibition match over query
-        if intent.match_to_specific_film:
-            w_query = 0.25
-            w_ex = 0.75
-        else:
-            if "theme" in q_lower or "themes" in q_lower:
-                w_query = 0.88
-            if "existential" in q_lower:
-                w_query = max(w_query, 0.92)
-            # When user specified filters (genres, lead gender, year, etc.), weight query/match to intent more
-            if intent.genres or intent.lead_gender or intent.year_start or intent.year_end:
-                w_query = max(w_query, 0.85)
-            # If the prompt is explicitly about what's in theaters / current market, give exhibitions more weight
-            if any(kw in q_lower for kw in ["in theaters", "in theatres", "current exhibitions", "what's showing", "now showing"]):
-                w_query = max(0.6, w_query - 0.15)
-            w_ex = 1.0 - w_query
-
-        # For each library film, keep top-K exhibition candidates (excluding exact same film), then when
-        # building the final list prefer exhibitions from cities we haven't used yet (diversify locations).
-        def _location_key(loc: str) -> str:
-            """Normalize location for diversity (e.g. 'Venue (Portland, OR)' -> 'Portland, OR')."""
-            if not loc or not isinstance(loc, str):
-                return loc or ""
-            m = re.search(r"\(([^)]+)\)\s*$", loc.strip())
-            return m.group(1).strip() if m else loc.strip()
-
-        topk = min(12, len(ex_rows)) if len(ex_rows) else 0
-        lib_candidates = []  # list of (lib_row, list of {ex_row, exhibition_similarity, relevance_score})
-        for lib_idx, lib_row in enumerate(lib_rows):
-            if topk <= 0:
-                continue
-            col = base_matrix[:, lib_idx]
-            cand = np.argpartition(-col, min(topk, len(col)) - 1)[:topk]
-            cand = cand[np.argsort(-col[cand])]
-            candidates_for_lib = []
-            for ex_i in cand:
-                ex_row = ex_rows[int(ex_i)]
-                if _is_exact_same_film(lib_row, ex_row):
-                    continue
-                base_sim = float(col[int(ex_i)])
-                exhibition_similarity = self.matching_agent._calculate_enhanced_similarity(
-                    lib_row,
-                    ex_row,
-                    base_sim,
-                    director_weight=intent.director_weight,
-                    writer_weight=intent.writer_weight,
-                    cast_weight=intent.cast_weight,
-                    thematic_weight=intent.thematic_weight,
-                    stylistic_weight=intent.stylistic_weight,
-                    extra_weights=intent.column_weights,
-                )
-                relevance_score = (w_query * float(query_sims[lib_idx])) + (w_ex * float(exhibition_similarity))
-                candidates_for_lib.append({
-                    "exhibition_film": ex_row,
-                    "exhibition_similarity": float(exhibition_similarity),
-                    "relevance_score": relevance_score,
-                })
-                if len(candidates_for_lib) >= 10:
-                    break
-            if not candidates_for_lib:
-                continue
-            best_relevance = max(c["relevance_score"] for c in candidates_for_lib)
-            lib_candidates.append((lib_row, query_sims[lib_idx], candidates_for_lib, best_relevance))
-
-        lib_candidates.sort(key=lambda x: x[3], reverse=True)
-
-        # Build unique_matches with location diversity: prefer exhibitions from cities not yet used.
-        seen_sig = set()
-        used_location_keys = set()
-        unique_matches = []
-        for lib_row, query_sim, candidates_for_lib, _ in lib_candidates:
-            sig = _title_signature(lib_row.get("title", ""))
-            if sig and sig in seen_sig:
-                continue
-            if len(unique_matches) >= top_n:
-                break
-            # Prefer candidate from a city we haven't used yet; among those (or if none), pick best by relevance.
-            best_item = None
-            best_score = -1.0
-            best_diverse_item = None
-            best_diverse_score = -1.0
-            for c in candidates_for_lib:
-                loc_key = _location_key(c["exhibition_film"].get("location") or "")
-                is_new_location = loc_key and loc_key not in used_location_keys
-                score = c["relevance_score"]
-                if is_new_location and score > best_diverse_score:
-                    best_diverse_item = c
-                    best_diverse_score = score
-                if score > best_score:
-                    best_item = c
-                    best_score = score
-            if best_diverse_item is not None:
-                best_item = best_diverse_item
-            elif best_item is None:
-                best_item = candidates_for_lib[0]
-            if sig:
-                seen_sig.add(sig)
-            loc_key = _location_key(best_item["exhibition_film"].get("location") or "")
-            if loc_key:
-                used_location_keys.add(loc_key)
-            # Top exhibition matches for this library film (for overview: "relevant to these titles")
-            exhibition_matches_list = sorted(
-                candidates_for_lib,
-                key=lambda c: c["exhibition_similarity"],
-                reverse=True,
-            )[:5]
-            exhibition_matches = [
-                {
-                    "title": c["exhibition_film"].get("title", ""),
-                    "location": c["exhibition_film"].get("location", ""),
-                    "similarity": c["exhibition_similarity"],
-                }
-                for c in exhibition_matches_list
-            ]
-            unique_matches.append({
-                "library_film": lib_row,
-                "exhibition_film": best_item["exhibition_film"],
-                "relevance_score": best_item["relevance_score"],
-                "exhibition_similarity": best_item["exhibition_similarity"],
-                "query_similarity": float(query_sim),
-                "exhibition_matches": exhibition_matches,
-            })
-        
-        # Omit matches with exhibition similarity < 0.5; fewer than top_n results is ok
-        unique_matches = [m for m in unique_matches if (m.get("exhibition_similarity") or 0) >= 0.5]
-        
         # Generate recommendations with reasoning (query-based + exhibition relevance)
         recommendations = []
         for match in unique_matches[:top_n]:

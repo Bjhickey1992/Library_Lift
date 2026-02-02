@@ -68,6 +68,16 @@ def get_openai_api_key():
     return key
 
 
+def get_anthropic_api_key():
+    """Get Anthropic (Claude) API key from environment. Used for 'need' field generation."""
+    key = os.getenv("ANTHROPIC_API_KEY")
+    if not key:
+        raise ValueError(
+            "ANTHROPIC_API_KEY not found. Set it in your environment or .env for need-field generation."
+        )
+    return key
+
+
 def get_intent_model() -> str:
     """
     Model used for query intent parsing. Use a capable model for accurate intent extraction.

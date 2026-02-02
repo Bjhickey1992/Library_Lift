@@ -1696,6 +1696,8 @@ class MatchingAgent:
             parts.append(f"Style: {film_dict['stylistic_descriptors']}")
         if film_dict.get("emotional_tone"):
             parts.append(f"Tone: {film_dict['emotional_tone']}")
+        if film_dict.get("need"):
+            parts.append(f"Viewer needs: {film_dict['need']}")
         
         return "\n".join(parts)
 
