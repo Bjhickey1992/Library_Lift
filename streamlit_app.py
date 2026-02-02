@@ -3,6 +3,7 @@ TakeOne - Film Library Monetization Dashboard
 Modern dashboard UI for film library recommendations and market insights
 """
 
+import re
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -30,6 +31,59 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
+# Weekly Phase 2: run exhibition scrape + embeddings every Monday (autonomous)
+def _maybe_run_weekly_phase2():
+    """If today is Monday and we haven't run this week, start Phase 2 weekly in a background thread."""
+    from pathlib import Path
+    import threading
+
+    project_root = Path(__file__).resolve().parent
+    marker_path = project_root / ".last_weekly_phase2_run"
+    lock_path = project_root / ".weekly_phase2_running"
+    today = datetime.now().date()
+
+    # Only on Mondays (weekday 0)
+    if today.weekday() != 0:
+        return
+    # Avoid starting if another run is in progress
+    if lock_path.exists():
+        return
+    # Already ran this week?
+    if marker_path.exists():
+        try:
+            with open(marker_path, "r", encoding="utf-8") as f:
+                last_run_str = f.read().strip()
+            last_run = datetime.strptime(last_run_str, "%Y-%m-%d").date()
+            if (today - last_run).days < 7:
+                return
+        except Exception:
+            pass
+
+    def _run():
+        try:
+            lock_path.write_text("", encoding="utf-8")
+            from run_phase2_weekly import run_phase2_weekly
+            run_phase2_weekly()
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+        finally:
+            if lock_path.exists():
+                lock_path.unlink(missing_ok=True)
+            try:
+                marker_path.write_text(today.isoformat(), encoding="utf-8")
+            except Exception:
+                pass
+
+    if "weekly_phase2_started" not in st.session_state:
+        st.session_state.weekly_phase2_started = False
+    if not st.session_state.weekly_phase2_started:
+        st.session_state.weekly_phase2_started = True
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+
+_maybe_run_weekly_phase2()
 
 # Auto-generate embeddings if missing or invalid (for deployment)
 @st.cache_resource
@@ -123,6 +177,26 @@ def calculate_trending_genres(exhibitions_df: pd.DataFrame, top_n: int = 3) -> L
     
     return genres_data
 
+def _parse_requested_count(text: str) -> Optional[int]:
+    """If the user asks for a specific number of recommendations, return it (1–20). Else None."""
+    if not text or not text.strip():
+        return None
+    text_lower = text.lower().strip()
+    patterns = [
+        r"(?:give me|show me|get me|recommend)\s+(?:me\s+)?(\d+)\s*(?:titles?|films?|recommendations?)?",
+        r"top\s+(\d+)\s*(?:titles?|films?|recommendations?)?",
+        r"(\d+)\s*(?:titles?|films?|recommendations?)(?:\s+please)?(?:\s+that)?",
+        r"(?:first|best)\s+(\d+)\s*(?:titles?|films?|recommendations?)?",
+    ]
+    for pat in patterns:
+        m = re.search(pat, text_lower)
+        if m:
+            n = int(m.group(1))
+            if 1 <= n <= 20:
+                return n
+    return None
+
+
 def _recommendations_intro(count: int, territory: str, query_type: str, trends: Optional[Dict] = None) -> str:
     """Short intro line for recommendations. No per-film text; details go in poster rows only."""
     if count == 0:
@@ -186,42 +260,38 @@ def get_trending_films(exhibitions_df: pd.DataFrame, top_n: int = 2) -> Tuple[Op
     
     return now_showing_film, rerelease_film
 
-# Custom CSS for Ivory theme and modern styling
+# Custom CSS: clean, minimal, modern — more contrast, bolder lines
 st.markdown("""
 <style>
-    /* Ivory base theme */
     :root {
-        --ivory: #FFFFF0;
-        --ivory-warm: #F5F3E8;
-        --ivory-card: #FFFEF4;
-        /* Higher-contrast borders/dividers while staying warm */
-        --ivory-border: #CFCFBE;
-        --ivory-divider: #BDBDAE;
-        --primary-orange: #E85D04;
-        --primary-blue: #2563EB;
-        --primary-green: #059669;
-        --text-primary: #1A1A1A;
-        --text-secondary: #3F3F38;
-        --text-muted: #5A5A52;
+        --ivory: #FFFCF5;
+        --ivory-warm: #F5F2EA;
+        --ivory-card: #FFFFFF;
+        --ivory-border: #B8B4A8;
+        --ivory-divider: #A8A498;
+        --primary: #0f0f0f;
+        --primary-muted: #1d4ed8;
+        --text-primary: #0f0f0f;
+        --text-secondary: #333330;
+        --text-muted: #555550;
+        --primary-orange: #a63508;
+        --primary-blue: #1d4ed8;
     }
     
-    /* Hide default Streamlit elements */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Main container */
     .main .block-container {
-        padding-top: 2rem;
+        padding-top: 1.5rem;
         padding-bottom: 2rem;
-        max-width: 100%;
+        max-width: 900px;
+        margin-left: auto;
+        margin-right: auto;
         background-color: var(--ivory);
     }
     
-    /* Background: Ivory – force on full app + chat + nav surfaces */
-    html,
-    body,
-    .stApp,
+    html, body, .stApp,
     [data-testid="stAppViewContainer"],
     [data-testid="stVerticalBlock"],
     [data-testid="stHorizontalBlock"],
@@ -231,36 +301,39 @@ st.markdown("""
     [data-testid="stChatInput"] {
         background-color: var(--ivory) !important;
     }
-
-    /* Ensure all top-level columns (including the Library select row) sit on ivory */
-    [data-testid="stColumn"] {
-        background-color: var(--ivory) !important;
-    }
+    [data-testid="stColumn"] { background-color: var(--ivory) !important; }
     
-    /* Header styling */
+    /* Header — bolder line */
     .header-container {
-        background: linear-gradient(135deg, var(--ivory-card) 0%, var(--ivory-warm) 100%);
-        padding: 1.5rem 2rem;
-        border-bottom: 2px solid var(--primary-orange);
-        margin-bottom: 2rem;
-        border: 1px solid var(--ivory-border);
-        border-radius: 0 0 12px 12px;
-        box-shadow: 0 3px 14px rgba(0,0,0,0.08);
+        background: transparent;
+        padding: 0.75rem 0 1.5rem 0;
+        margin-bottom: 1.5rem;
+        border-bottom: 2px solid var(--ivory-divider);
     }
-    
     .logo-text {
-        font-size: 2rem;
-        font-weight: 700;
+        font-size: 1.5rem;
+        font-weight: 600;
         color: var(--text-primary);
         margin: 0;
-        letter-spacing: 2px;
+        letter-spacing: -0.02em;
     }
-    
     .tagline {
-        font-size: 0.9rem;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        margin-top: 0.2rem;
+        letter-spacing: 0.02em;
+    }
+    .header-meta {
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        margin: 0 0 0.5rem 0;
+        text-align: center;
+    }
+    .search-instructions {
+        font-size: 0.85rem;
         color: var(--text-secondary);
-        margin-top: 0.25rem;
-        letter-spacing: 1px;
+        margin-bottom: 0.75rem;
+        line-height: 1.4;
     }
     
     /* Navigation tabs */
@@ -490,67 +563,66 @@ st.markdown("""
     
     .stButton > button:hover {
         background-color: var(--ivory-warm) !important;
-        border-color: var(--primary-blue) !important;
-        color: var(--primary-blue) !important;
+        border-color: var(--primary-muted) !important;
+        color: var(--primary-muted) !important;
     }
 
-    /* Library select: force light ivory card look (override dark theme) */
-    [data-testid="stSelectbox"] {
-        background-color: var(--ivory) !important;
-        padding: 0.35rem 0.5rem !important;
+    /* Library — radio group (matches UI: ivory, bolder lines) */
+    .library-label {
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin: 0 0 0.4rem 0;
     }
-    [data-testid="stSelectbox"] label {
-        color: var(--text-secondary) !important;
+    [data-testid="stRadio"] {
+        background-color: var(--ivory-card) !important;
+        border: 2px solid var(--ivory-border) !important;
+        border-radius: 8px !important;
+        padding: 0.4rem 0.75rem !important;
+    }
+    [data-testid="stRadio"] > div {
+        background-color: transparent !important;
+        border: none !important;
+    }
+    [data-testid="stRadio"] label {
+        color: var(--text-primary) !important;
         font-weight: 500 !important;
     }
-    /* Target only the visible select field, not all children (to avoid menu bleed) */
-    [data-testid="stSelectbox"] > div > div,
-    [data-testid="stSelectbox"] div[role="button"],
-    [data-testid="stSelectbox"] div[data-baseweb="select"] {
-        background-color: var(--ivory-card) !important;
-        color: var(--text-primary) !important;
-        border-radius: 12px !important;
-        border: 1px solid var(--ivory-border) !important;
-        box-shadow: none !important;
+    [data-testid="stRadio"] label:hover {
+        color: var(--primary-muted) !important;
     }
-
-    /* Open dropdown menu: force ivory card instead of dark */
-    [data-baseweb="menu"],
-    [data-baseweb="menu"] ul,
-    [data-baseweb="menu"] li,
-    [data-baseweb="menu"] li * {
-        background-color: var(--ivory-card) !important;
-        color: var(--text-primary) !important;
-        box-shadow: none !important;
+    /* Suggestion bullets */
+    .suggestion-bullets {
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+        line-height: 1.6;
+        margin: 0.5rem 0 1rem 0;
     }
+    .suggestion-bullets ul { margin: 0; padding-left: 1.25rem; }
     
-    /* Chat message bubbles, inputs, etc. */
+    /* Chat — response bubbles: lighter cream so only the reasoning block reads as darker beige */
     [data-testid="stChatMessage"] {
-        background: var(--ivory-card);
-        border: 1px solid var(--ivory-border);
-        border-radius: 12px;
+        background: var(--ivory) !important;
+        border: 2px solid var(--ivory-border);
+        border-radius: 10px;
     }
-    
-    /* Chat area + input: make it match the light library select look */
     [data-testid="stChatMessageContainer"] {
-        background-color: var(--ivory);
-        padding-top: 0.5rem;
+        background-color: var(--ivory) !important;
+        padding: 1rem 0 0.5rem 0;
     }
-    
-    /* Bar at the bottom that holds the chat input */
     [data-testid="stChatInput"] {
-        background-color: var(--ivory);
-        border-top: 1px solid var(--ivory-border);
+        background-color: var(--ivory) !important;
+        border-top: 2px solid var(--ivory-divider) !important;
+        padding-top: 0.75rem !important;
     }
-    
-    /* The rounded shell around the textarea + send icon */
     [data-testid="stChatInput"] > div {
         margin-top: 0.5rem;
-        margin-bottom: 0.75rem;
-        padding: 0.15rem 0.75rem;
-        border-radius: 12px;
-        border: 1px solid var(--ivory-border);
+        margin-bottom: 0.5rem;
+        padding: 0.5rem 1rem;
+        border-radius: 10px;
+        border: 2px solid var(--ivory-border);
         background-color: var(--ivory-card);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
     }
     
     /* The actual text area */
@@ -602,31 +674,39 @@ st.markdown("""
         box-shadow: 0 6px 20px rgba(37,99,235,0.4);
     }
 
-    /* Why this film: clean outline, subtle background, lifts off page */
+    /* "Why this film is recommended" — darker beige so it stands out from the light cream response */
     .reasoning-block {
-        background: var(--ivory-card);
-        border: 1px solid var(--ivory-border);
-        border-radius: 10px;
-        padding: 1rem 1.25rem;
-        margin: 0.75rem 0;
-        box-shadow: 0 3px 14px rgba(0,0,0,0.08);
+        background: var(--ivory-warm) !important;
+        border: 2px solid var(--ivory-border);
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        margin: 0.5rem 0;
     }
-    .reasoning-block .reasoning-title {
+    .reasoning-block .reasoning-title { font-weight: 600; color: var(--text-primary); margin: 0 0 0.25rem 0; font-size: 0.9rem; }
+    .reasoning-block .reasoning-text { color: var(--text-secondary); margin: 0; font-size: 0.85rem; line-height: 1.4; }
+    /* Tighter vertical spacing in recommendation (chat) content */
+    [data-testid="stChatMessage"] [data-testid="stVerticalBlock"] > div { margin-bottom: 0.2rem !important; }
+    [data-testid="stChatMessage"] .stSubheader { margin-top: 0.15rem !important; margin-bottom: 0.25rem !important; }
+    [data-testid="stChatMessage"] p { margin: 0.1rem 0 !important; line-height: 1.35; }
+    [data-testid="stChatMessage"] .stCaption { margin-top: 0.05rem !important; margin-bottom: 0.15rem !important; }
+    [data-testid="stChatMessage"] .reasoning-block { margin-top: 0.35rem !important; margin-bottom: 0.2rem !important; padding: 0.5rem 0.75rem !important; }
+    [data-testid="stChatMessage"] hr { margin: 0.4rem 0 !important; }
+    /* Chat section — elevated so it's the main focus on open */
+    .chat-section {
+        margin: 1rem 0 0.75rem 0;
+    }
+    .chat-section-title {
+        font-size: 1.05rem;
         font-weight: 600;
         color: var(--text-primary);
-        margin: 0 0 0.5rem 0;
-        font-size: 0.95rem;
-    }
-    .reasoning-block .reasoning-text {
-        color: var(--text-secondary);
         margin: 0;
-        font-size: 0.9rem;
-        line-height: 1.5;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid var(--ivory-divider);
     }
 </style>
 """, unsafe_allow_html=True)
 
-STUDIO_OPTIONS = ["Universal Pictures", "Lionsgate"]
+STUDIO_OPTIONS = ["Lionsgate", "Universal Pictures"]
 
 
 def _init_chatbot_agent(studio_name: str) -> None:
@@ -651,11 +731,11 @@ def _on_library_change() -> None:
     _init_chatbot_agent(st.session_state.selected_studio)
 
 
-# Initialize session state
+# Initialize session state (default: Lionsgate)
 if "selected_studio" not in st.session_state:
-    st.session_state.selected_studio = "Universal Pictures"
+    st.session_state.selected_studio = "Lionsgate"
 elif st.session_state.selected_studio not in STUDIO_OPTIONS:
-    st.session_state.selected_studio = "Universal Pictures"
+    st.session_state.selected_studio = "Lionsgate"
 
 if "agent_studio" not in st.session_state:
     st.session_state.agent_studio = None
@@ -676,26 +756,26 @@ if not st.session_state.get("initialized", False):
     st.stop()
 
 
-# Header Section
+# Header: dashboard/copyright at very top, then title and tagline
 st.markdown("""
 <div class="header-container">
-    <div>
-        <h1 class="logo-text">Library Lift</h1>
-        <p class="tagline">FILM LIBRARY MONETIZATION DASHBOARD</p>
-    </div>
+    <p class="header-meta">Library Lift · Copyright Barbara J Hickey 2026</p>
+    <h1 class="logo-text">Library Lift</h1>
+    <p class="tagline">Recommendations for monetizing library content</p>
 </div>
 """, unsafe_allow_html=True)
 
-# Top controls: Library select only (no tabs)
-st.selectbox(
+# Library — radio group (rebuilt to match UI, no dropdown)
+st.markdown('<p class="library-label">Library</p>', unsafe_allow_html=True)
+st.radio(
     "Library",
     options=STUDIO_OPTIONS,
     key="selected_studio",
     on_change=_on_library_change,
-    help="Switch between Universal and Lionsgate library data/embeddings.",
+    horizontal=True,
+    label_visibility="collapsed",
 )
-
-st.markdown("<hr style='border-color: #D4D4C8; margin: 1rem 0;'>", unsafe_allow_html=True)
+st.markdown("<div style='height: 0.75rem;'></div>", unsafe_allow_html=True)
 
 # Main Content – show Recommendations tab only
 if False:  # Dashboard tab removed
@@ -1067,34 +1147,39 @@ if False:  # Dashboard tab removed
     # To see real data, run the phase scripts to generate library and exhibition files
 
 elif st.session_state.current_tab == "Recommendations" or True:
-    st.header("📊 Recommendations & Trends Chatbot")
-    
-    # Sidebar for filters
+    # Sidebar: settings (default 5 recommendations; user can also ask for a number in chat)
     with st.sidebar:
-        st.header("⚙️ Filters")
-        st.write(f"**Library:** {st.session_state.selected_studio}")
-        min_sim = st.slider("Minimum Similarity", 0.0, 1.0, 0.5, 0.01)
-        max_sim = st.slider("Maximum Similarity", 0.0, 1.0, 0.7, 0.01)
-        top_n = st.slider("Number of Recommendations", 1, 10, 5)
+        st.caption("Library")
+        st.write(st.session_state.selected_studio)
+        with st.expander("Settings", expanded=False):
+            min_sim = st.slider("Min similarity", 0.0, 1.0, 0.5, 0.01)
+            max_sim = st.slider("Max similarity", 0.0, 1.0, 0.7, 0.01)
+            top_n = st.slider("Recommendations to show", 1, 20, 5, help="Default 5. You can also ask in chat, e.g. “give me 10 titles”.")
 
-        # Embeddings availability hint (per selected library)
         agent = st.session_state.chatbot_agent
         if not os.path.exists(agent.library_embeddings_path):
-            st.info(
-                f"Embeddings file not found for **{st.session_state.selected_studio}**: "
-                f"`{agent.library_embeddings_path}`. "
-                "Recommendations require embeddings. Generate them (e.g. run `python generate_library_embeddings.py`)."
-            )
-    
-    # Chat interface for recommendations
+            st.caption("Embeddings missing for this library. Some queries need them.")
+
+    # Chat — elevated section so it's the main focus
+    st.markdown(
+        '<div class="chat-section"><p class="chat-section-title">Ask for recommendations</p></div>',
+        unsafe_allow_html=True,
+    )
     st.markdown("""
-    **Ask questions like:**
-    - *"What films should we emphasize based on current trends in theaters?"*
-    - *"What library titles should we emphasize this month in the US?"*
-    - *"What's trending in theaters right now?"*
-    - *"Which films match current trends in the UK?"*
-    """)
-    
+    <div class="suggestion-bullets">
+    <p class="search-instructions"><strong>New search vs refine:</strong> Start a <strong>new search</strong> by typing a fresh question or by saying &quot;new search&quot; or &quot;new query&quot;—this ignores previous filters. To <strong>refine</strong> your current results, send a follow-up in the same thread (e.g. &quot;only female leads&quot;, &quot;in the US&quot;, &quot;give me 10 titles&quot;) and the app will keep your prior filters and narrow or adjust the list.</p>
+    <ul>
+        <li>Ask for trends or library matches. You can request a number, e.g. &quot;give me 7 titles&quot;.</li>
+        <li>What are the best films to emphasize in the US?</li>
+        <li>What&apos;s trending in theaters right now?</li>
+        <li>Which library titles match current trends in a specific city?</li>
+        <li>Give me 5 titles we should emphasize this month.</li>
+        <li>Refine by replying with more constraints (city, territory, number of titles, etc.).</li>
+    </ul>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Chat interface (messages + input) below the suggestions
     # Display chat messages
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
@@ -1122,9 +1207,9 @@ elif st.session_state.current_tab == "Recommendations" or True:
                         col1, col2 = st.columns([1, 3])
                         with col1:
                             if rec.get("poster_url"):
-                                st.image(rec["poster_url"], use_column_width=True)
+                                st.image(rec["poster_url"], width=220)
                             else:
-                                st.info("Poster not available")
+                                st.caption("Poster not available")
                         with col2:
                             st.subheader(f"{i}. {rec['title']} ({rec['year']})")
                             st.write(f"**Director:** {rec['director']}")
@@ -1162,8 +1247,11 @@ elif st.session_state.current_tab == "Recommendations" or True:
                         st.markdown("---")
     
     # Chat input
-    if prompt := st.chat_input("Ask about library recommendations or current trends..."):
-        # Provide up to the last 10 user prompts for context continuity (refinements).
+    if prompt := st.chat_input("Ask for recommendations or trends..."):
+        # If user asks for a specific number (e.g. "give me 10 titles"), use it; else use slider (default 5).
+        requested_n = _parse_requested_count(prompt)
+        top_n_use = requested_n if requested_n is not None else top_n
+
         history_prompts = [m["content"] for m in st.session_state.messages if m.get("role") == "user"][-10:]
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
@@ -1177,7 +1265,7 @@ elif st.session_state.current_tab == "Recommendations" or True:
                         prompt,
                         min_similarity=min_sim,
                         max_similarity=max_sim,
-                        top_n=top_n,
+                        top_n=top_n_use,
                         history_prompts=history_prompts
                     )
                     
@@ -1219,6 +1307,10 @@ elif st.session_state.current_tab == "Recommendations" or True:
                             len(recommendations), territory, query_type, trends
                         )
                         st.markdown(response_text)
+                        if result.get("territory_fallback_note"):
+                            st.info(result["territory_fallback_note"])
+                        if result.get("genre_fallback_note"):
+                            st.info(result["genre_fallback_note"])
                         
                         # Trend expander (summary only; no film list)
                         if query_type == "trend" and trends:
@@ -1239,9 +1331,9 @@ elif st.session_state.current_tab == "Recommendations" or True:
                                     col1, col2 = st.columns([1, 3])
                                     with col1:
                                         if rec.get("poster_url"):
-                                            st.image(rec["poster_url"], use_column_width=True)
+                                            st.image(rec["poster_url"], width=220)
                                         else:
-                                            st.info("Poster not available")
+                                            st.caption("Poster not available")
                                     with col2:
                                         st.subheader(f"{i}. {rec['title']} ({rec['year']})")
                                         st.write(f"**Director:** {rec['director']}")
@@ -1302,10 +1394,3 @@ elif st.session_state.current_tab == "Market Insights":
     st.header("💡 Market Insights")
     st.info("Market insights features coming soon...")
 
-# Footer
-st.markdown("---")
-st.markdown("""
-<div style="text-align: center; color: #5A5A52; padding: 2rem 0; font-size: 0.85rem;">
-    TakeOne Dashboard | Powered by AI-Powered Film Library Matching
-</div>
-""", unsafe_allow_html=True)

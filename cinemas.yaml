@@ -1,54 +1,12 @@
 version: 1
+# Phase 2 expanded: independent & nonprofit theaters only.
+# US: Los Angeles, New York, Seattle, San Francisco, Atlanta, Portland OR,
+#     Kansas City, Chicago, Austin.
+# International: Toronto CA, Vancouver CA, London UK, Paris FR, Berlin DE.
+# Scrape aggressively; all enabled.
 
-# Add / remove cinemas freely. The agent will scrape ALL enabled cinemas.
-# Tip: Prefer pages that list showtimes / events and include JSON-LD "Event" data.
-#
-# Fields:
-# - id: unique identifier (no spaces)
-# - name: cinema / chain / org
-# - country: ISO 2-letter (US, CA, MX, GB, FR)
-# - city: optional
-# - type: chain | independent | nonprofit
-# - programme_url: URL to scrape
-# - enabled: true/false
-# - scraper: auto | jsonld_events
 cinemas:
-  - id: film_forum_nyc
-    name: Film Forum
-    country: US
-    city: New York, NY
-    type: nonprofit
-    programme_url: https://filmforum.org/now_playing
-    enabled: true
-    scraper: auto
-
-  - id: bfi_southbank
-    name: BFI Southbank
-    country: GB
-    city: London
-    type: nonprofit
-    programme_url: https://whatson.bfi.org.uk/Online/
-    enabled: false
-    scraper: auto
-
-  - id: cinematheque_francaise
-    name: La Cinémathèque française
-    country: FR
-    city: Paris
-    type: nonprofit
-    programme_url: https://www.cinematheque.fr/film/
-    enabled: false
-    scraper: auto
-
-  - id: tiff_lightbox
-    name: TIFF Lightbox
-    country: CA
-    city: Toronto, ON
-    type: nonprofit
-    programme_url: https://www.tiff.net/events
-    enabled: false
-    scraper: auto
-
+  # --- Los Angeles ---
   - id: american_cinematheque_la
     name: American Cinematheque
     country: US
@@ -58,16 +16,6 @@ cinemas:
     enabled: true
     scraper: auto
 
-  - id: ifc_center_nyc
-    name: IFC Center
-    country: US
-    city: New York, NY
-    type: independent
-    programme_url: https://www.ifccenter.com/
-    enabled: true
-    scraper: auto
-
-  # Additional Los Angeles cinemas
   - id: laemmle_theatres
     name: Laemmle Theatres
     country: US
@@ -95,7 +43,25 @@ cinemas:
     enabled: true
     scraper: auto
 
-  # Additional New York cinemas
+  # --- New York ---
+  - id: film_forum_nyc
+    name: Film Forum
+    country: US
+    city: New York, NY
+    type: nonprofit
+    programme_url: https://filmforum.org/now_playing
+    enabled: true
+    scraper: auto
+
+  - id: ifc_center_nyc
+    name: IFC Center
+    country: US
+    city: New York, NY
+    type: independent
+    programme_url: https://www.ifccenter.com/
+    enabled: true
+    scraper: auto
+
   - id: metrograph_nyc
     name: Metrograph
     country: US
@@ -119,7 +85,7 @@ cinemas:
     country: US
     city: New York, NY
     type: nonprofit
-    programme_url: https://www.filmlinc.org/films/
+    programme_url: https://www.filmlinc.org/calendar/
     enabled: true
     scraper: auto
 
@@ -132,23 +98,109 @@ cinemas:
     enabled: true
     scraper: auto
 
-  - id: museum_of_moving_image
-    name: Museum of the Moving Image
+  # --- Seattle ---
+  - id: siff_cinema_seattle
+    name: SIFF Cinema
     country: US
-    city: New York, NY
+    city: Seattle, WA
     type: nonprofit
-    programme_url: https://www.movingimage.us/visit/film-screenings/
-    enabled: false
+    programme_url: https://www.siff.net/calendar
+    enabled: true
     scraper: auto
 
-  # Additional Chicago cinemas
+  - id: nw_film_forum_seattle
+    name: Northwest Film Forum
+    country: US
+    city: Seattle, WA
+    type: nonprofit
+    programme_url: https://nwfilmforum.org/calendar
+    enabled: true
+    scraper: auto
+
+  # --- San Francisco ---
+  - id: castro_theatre_sf
+    name: Castro Theatre
+    country: US
+    city: San Francisco, CA
+    type: independent
+    programme_url: https://castrotheatre.com/
+    enabled: true
+    scraper: auto
+
+  - id: sf_film_society
+    name: SFFILM
+    country: US
+    city: San Francisco, CA
+    type: nonprofit
+    programme_url: https://sffilm.org/schedule/
+    enabled: true
+    scraper: auto
+
+  # --- Atlanta ---
+  - id: plaza_theatre_atlanta
+    name: Plaza Theatre
+    country: US
+    city: Atlanta, GA
+    type: independent
+    programme_url: https://www.plazaatlanta.com/now-showing
+    enabled: true
+    scraper: auto
+
+  # --- Portland, OR ---
+  - id: hollywood_theatre_portland
+    name: Hollywood Theatre
+    country: US
+    city: Portland, OR
+    type: nonprofit
+    programme_url: https://hollywoodtheatre.org/
+    enabled: true
+    scraper: auto
+
+  - id: nw_film_center_portland
+    name: NW Film Center
+    country: US
+    city: Portland, OR
+    type: nonprofit
+    programme_url: https://www.nwfilm.org/screenings/
+    enabled: true
+    scraper: auto
+
+  - id: cinema_21_portland
+    name: Cinema 21
+    country: US
+    city: Portland, OR
+    type: independent
+    programme_url: https://www.cinema21.com/
+    enabled: true
+    scraper: auto
+
+  # --- Kansas City ---
+  - id: screenland_kc
+    name: Screenland Theatre
+    country: US
+    city: Kansas City, MO
+    type: independent
+    programme_url: https://www.screenland.com/now-playing/
+    enabled: true
+    scraper: auto
+
+  - id: tivoli_nelson_atkins_kc
+    name: Tivoli at the Nelson-Atkins
+    country: US
+    city: Kansas City, MO
+    type: nonprofit
+    programme_url: https://www.tivolikc.com/
+    enabled: true
+    scraper: auto
+
+  # --- Chicago ---
   - id: facets_chicago
     name: FACETS
     country: US
     city: Chicago, IL
     type: nonprofit
     programme_url: https://www.facets.org/cinematheque/
-    enabled: false
+    enabled: true
     scraper: auto
 
   - id: gene_siskel_film_center
@@ -157,7 +209,7 @@ cinemas:
     city: Chicago, IL
     type: nonprofit
     programme_url: https://www.siskelfilmcenter.org/films
-    enabled: false
+    enabled: true
     scraper: auto
 
   - id: doc_films_chicago
@@ -166,38 +218,76 @@ cinemas:
     city: Chicago, IL
     type: nonprofit
     programme_url: https://docfilms.uchicago.edu/
-    enabled: false
+    enabled: true
     scraper: auto
 
-  # Additional San Francisco cinemas
-  - id: castro_theatre_sf
-    name: Castro Theatre
+  # --- Austin ---
+  - id: afs_cinema_austin
+    name: AFS Cinema
     country: US
-    city: San Francisco, CA
-    type: independent
-    programme_url: https://castrotheatre.com/
-    enabled: false
-    scraper: auto
-
-  - id: alamo_drafthouse_sf
-    name: Alamo Drafthouse (SF)
-    country: US
-    city: San Francisco, CA
-    type: chain
-    programme_url: https://drafthouse.com/san-francisco/showtimes
-    enabled: false
-    scraper: auto
-
-  - id: sf_film_society
-    name: SFFILM
-    country: US
-    city: San Francisco, CA
+    city: Austin, TX
     type: nonprofit
-    programme_url: https://sffilm.org/events/
-    enabled: false
+    programme_url: https://www.austinfilm.org/screenings/
+    enabled: true
     scraper: auto
 
-  # London cinemas
+  - id: paramount_theatre_austin
+    name: Paramount Theatre
+    country: US
+    city: Austin, TX
+    type: nonprofit
+    programme_url: https://www.austintheatre.org/events/
+    enabled: true
+    scraper: auto
+
+  # --- Toronto, CA ---
+  - id: tiff_lightbox
+    name: TIFF Lightbox
+    country: CA
+    city: Toronto, ON
+    type: nonprofit
+    programme_url: https://tiff.net/calendar
+    enabled: true
+    scraper: auto
+
+  - id: revue_cinema_toronto
+    name: Revue Cinema
+    country: CA
+    city: Toronto, ON
+    type: independent
+    programme_url: https://revuecinema.ca/
+    enabled: true
+    scraper: auto
+
+  - id: hot_docs_toronto
+    name: Hot Docs Ted Rogers Cinema
+    country: CA
+    city: Toronto, ON
+    type: nonprofit
+    programme_url: https://www.hotdocs.ca/cinema
+    enabled: true
+    scraper: auto
+
+  # --- Vancouver, CA ---
+  - id: cinematheque_vancouver
+    name: The Cinematheque
+    country: CA
+    city: Vancouver, BC
+    type: nonprofit
+    programme_url: https://thecinematheque.ca/
+    enabled: true
+    scraper: auto
+
+  - id: viff_centre_vancouver
+    name: VIFF Centre
+    country: CA
+    city: Vancouver, BC
+    type: nonprofit
+    programme_url: https://viff.org/whats-on-calendar/
+    enabled: true
+    scraper: auto
+
+  # --- London, UK ---
   - id: bfi_southbank
     name: BFI Southbank
     country: GB
@@ -222,7 +312,7 @@ cinemas:
     city: London
     type: nonprofit
     programme_url: https://www.ica.art/films
-    enabled: false
+    enabled: true
     scraper: auto
 
   - id: barbican_cinema
@@ -231,7 +321,7 @@ cinemas:
     city: London
     type: nonprofit
     programme_url: https://www.barbican.org.uk/whats-on/cinema
-    enabled: false
+    enabled: true
     scraper: auto
 
   - id: picturehouse_cinemas_london
@@ -240,16 +330,16 @@ cinemas:
     city: London
     type: independent
     programme_url: https://www.picturehouses.com/whats-on
-    enabled: false
+    enabled: true
     scraper: auto
 
-  # Paris cinemas
+  # --- Paris, FR ---
   - id: cinematheque_francaise
     name: La Cinémathèque française
     country: FR
     city: Paris
     type: nonprofit
-    programme_url: https://www.cinematheque.fr/programme-du-jour.html
+    programme_url: https://www.cinematheque.fr/calendrier/
     enabled: true
     scraper: auto
 
@@ -267,8 +357,8 @@ cinemas:
     country: FR
     city: Paris
     type: nonprofit
-    programme_url: https://www.forumdesimages.fr/programmation
-    enabled: false
+    programme_url: https://www.forumdesimages.fr/
+    enabled: true
     scraper: auto
 
   - id: cinema_du_pantheon
@@ -276,54 +366,34 @@ cinemas:
     country: FR
     city: Paris
     type: independent
-    programme_url: https://www.cinema-pantheon.fr/
-    enabled: false
+    programme_url: https://www.cinemadupantheon.fr/
+    enabled: true
     scraper: auto
 
-  # Mexico City cinemas
-  - id: cineteca_nacional_mx
-    name: Cineteca Nacional
-    country: MX
-    city: Mexico City
+  # --- Berlin, DE ---
+  - id: arsenal_berlin
+    name: Arsenal
+    country: DE
+    city: Berlin
     type: nonprofit
-    programme_url: https://www.cinetecanacional.net/cartelera
-    enabled: false
+    programme_url: https://www.arsenal-berlin.de/en/cinema/
+    enabled: true
     scraper: auto
 
-  - id: cineteca_casa_del_lago
-    name: Cineteca Casa del Lago
-    country: MX
-    city: Mexico City
-    type: nonprofit
-    programme_url: https://www.casadelago.unam.mx/cineteca
-    enabled: false
+  - id: kino_international_berlin
+    name: Kino International
+    country: DE
+    city: Berlin
+    type: independent
+    programme_url: https://www.yorck.de/en/cinemas/kino-international
+    enabled: true
     scraper: auto
 
-  - id: cineteca_manuel_rodriguez
-    name: Cineteca Manuel Rodríguez
-    country: MX
-    city: Mexico City
-    type: nonprofit
-    programme_url: https://www.cineteca.unam.mx/
-    enabled: false
+  - id: babylon_berlin
+    name: Babylon
+    country: DE
+    city: Berlin
+    type: independent
+    programme_url: https://www.yorck.de/en/cinemas/babylon-kreuzberg
+    enabled: true
     scraper: auto
-
-  # Chain examples (these sites are often JS-heavy; you may need the optional Playwright mode)
-  - id: odeon_uk
-    name: ODEON Cinemas
-    country: GB
-    city: (multiple)
-    type: chain
-    programme_url: https://www.odeon.co.uk/films/
-    enabled: false
-    scraper: auto
-
-  - id: pathe_fr
-    name: Pathé
-    country: FR
-    city: (multiple)
-    type: chain
-    programme_url: https://www.pathe.fr/films
-    enabled: false
-    scraper: auto
-

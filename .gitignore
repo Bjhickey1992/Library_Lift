@@ -1,0 +1,6 @@
+# API keys and secrets (do not commit)
+.env
+
+# Weekly Phase 2 run state (local only)
+.last_weekly_phase2_run
+.weekly_phase2_running

@@ -57,7 +57,7 @@ class Screening:
     raw: Optional[Dict[str, Any]] = None
 
 
-def fetch_html(url: str, *, session: Optional[requests.Session] = None, timeout: int = 30, retries: int = 3) -> str:
+def fetch_html(url: str, *, session: Optional[requests.Session] = None, timeout: int = 45, retries: int = 3) -> str:
     """Fetch HTML with retry logic for rate-limited sites and user-agent rotation."""
     import random
     import time

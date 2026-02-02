@@ -1568,13 +1568,22 @@ Return ONLY valid JSON: {{"thematic_descriptors": "...", "stylistic_descriptors"
             if pd.notna(row.get("overview")):
                 parts.append(f"Plot: {row['overview']}")
             thematic = row.get("thematic_descriptors")
-            if pd.notna(thematic) and not (isinstance(thematic, (list, tuple, np.ndarray)) and len(thematic) > 1):
+            if isinstance(thematic, (list, tuple, np.ndarray)):
+                if len(thematic) > 0:
+                    parts.append(f"Themes: {thematic}")
+            elif pd.notna(thematic):
                 parts.append(f"Themes: {thematic}")
             stylistic = row.get("stylistic_descriptors")
-            if pd.notna(stylistic) and not (isinstance(stylistic, (list, tuple, np.ndarray)) and len(stylistic) > 1):
+            if isinstance(stylistic, (list, tuple, np.ndarray)):
+                if len(stylistic) > 0:
+                    parts.append(f"Style: {stylistic}")
+            elif pd.notna(stylistic):
                 parts.append(f"Style: {stylistic}")
             emotional = row.get("emotional_tone")
-            if pd.notna(emotional) and not (isinstance(emotional, (list, tuple, np.ndarray)) and len(emotional) > 1):
+            if isinstance(emotional, (list, tuple, np.ndarray)):
+                if len(emotional) > 0:
+                    parts.append(f"Tone: {emotional}")
+            elif pd.notna(emotional):
                 parts.append(f"Tone: {emotional}")
             film_texts.append("\n".join(parts))
         
@@ -1871,19 +1880,51 @@ class MatchingAgent:
         
         return min(boost, 0.25)  # Cap total boost at 0.25
     
+    def _column_similarity(self, lib_film: Dict, ex_film: Dict, col: str) -> float:
+        """
+        Compute a 0-1 similarity for a single column between library and exhibition film.
+        Used for extra_weights (dynamic column boost). Numeric columns use proximity; text uses overlap.
+        """
+        lv = lib_film.get(col)
+        ev = ex_film.get(col)
+        if lv is None or (isinstance(lv, float) and pd.isna(lv)):
+            return 0.0
+        if ev is None or (isinstance(ev, float) and pd.isna(ev)):
+            return 0.0
+        try:
+            lnum = float(lv)
+            enum = float(ev)
+            # Numeric: 1 - normalized distance (scale ~50 years)
+            dist = abs(lnum - enum) / 50.0
+            return max(0.0, 1.0 - min(1.0, dist))
+        except (TypeError, ValueError):
+            pass
+        # Text: tokenize and Jaccard or substring match
+        ls = str(lv).strip().lower()
+        es = str(ev).strip().lower()
+        if not ls or not es:
+            return 0.0
+        lset = set(_.strip() for _ in ls.replace(",", " ").split() if _.strip())
+        eset = set(_.strip() for _ in es.replace(",", " ").split() if _.strip())
+        if lset and eset:
+            return self._jaccard_similarity(lset, eset)
+        return 1.0 if ls == es else (0.5 if ls in es or es in ls else 0.0)
+
     def _calculate_enhanced_similarity(
         self, lib_film: Dict, ex_film: Dict, base_similarity: float,
         director_weight: float = 0.2,
         writer_weight: float = 0.15,
         cast_weight: float = 0.15,
         thematic_weight: float = 0.3,
-        stylistic_weight: float = 0.2
+        stylistic_weight: float = 0.2,
+        extra_weights: Optional[Dict[str, float]] = None
     ) -> float:
         """
         Calculate enhanced similarity using multiplicative approach with boost.
         
         Uses base similarity as foundation and multiplies by component match factors,
-        then adds post-processing boost.
+        then adds post-processing boost. extra_weights: optional { column_name: weight }
+        to boost additional columns (e.g. genres, release_year) in the match.
         
         Args:
             lib_film: Library film dictionary
@@ -1894,11 +1935,7 @@ class MatchingAgent:
             cast_weight: Weight for cast matching (0.0-1.0)
             thematic_weight: Weight for thematic matching (0.0-1.0)
             stylistic_weight: Weight for stylistic matching (0.0-1.0)
-        
-        Approach:
-        - Start with base similarity (from full embedding)
-        - Multiply by component match factors (thematic, stylistic, personnel)
-        - Add post-processing boost for explicit shared attributes
+            extra_weights: Optional dict of column_name -> weight for dynamic column boosting
         """
         # Calculate component similarities
         thematic_sim = self._calculate_thematic_similarity(lib_film, ex_film)
@@ -1908,32 +1945,43 @@ class MatchingAgent:
         # Split personnel similarity into director, writer, cast components
         director_sim, writer_sim, cast_sim = self._calculate_personnel_components(lib_film, ex_film)
         
-        # Normalize weights to sum to 1.0
+        # Normalize all weights (fixed + extra) to sum to 1.0
         total_weight = director_weight + writer_weight + cast_weight + thematic_weight + stylistic_weight
-        if total_weight > 0:
-            director_weight = director_weight / total_weight
-            writer_weight = writer_weight / total_weight
-            cast_weight = cast_weight / total_weight
-            thematic_weight = thematic_weight / total_weight
-            stylistic_weight = stylistic_weight / total_weight
+        extra = dict(extra_weights) if extra_weights else {}
+        extra_sum = sum(extra.values())
+        total = total_weight + extra_sum
+        if total > 0:
+            scale = 1.0 / total
+            director_weight = director_weight * scale
+            writer_weight = writer_weight * scale
+            cast_weight = cast_weight * scale
+            thematic_weight = thematic_weight * scale
+            stylistic_weight = stylistic_weight * scale
+            extra = {k: v * scale for k, v in extra.items()}
         else:
-            # Default weights if all are 0
             director_weight = 0.2
             writer_weight = 0.15
             cast_weight = 0.15
             thematic_weight = 0.3
             stylistic_weight = 0.2
+            extra = {}
         
         # Calculate weighted component match factors
-        # Each component contributes based on its weight
         director_factor = 1.0 + (director_sim * director_weight * 0.5) if director_weight > 0 else 1.0
         writer_factor = 1.0 + (writer_sim * writer_weight * 0.5) if writer_weight > 0 else 1.0
         cast_factor = 1.0 + (cast_sim * cast_weight * 0.5) if cast_weight > 0 else 1.0
         thematic_factor = 1.0 + (thematic_sim * thematic_weight * 0.5) if thematic_weight > 0 else 1.0
         stylistic_factor = 1.0 + (stylistic_sim * stylistic_weight * 0.5) if stylistic_weight > 0 else 1.0
         
+        # Extra column factors (only for columns present in both records)
+        extra_factor = 1.0
+        for col, w in extra.items():
+            if col in lib_film and col in ex_film and w > 0:
+                sim = self._column_similarity(lib_film, ex_film, col)
+                extra_factor *= 1.0 + (sim * w * 0.5)
+        
         # Multiply base similarity by weighted component factors
-        enhanced_sim = base_similarity * director_factor * writer_factor * cast_factor * thematic_factor * stylistic_factor
+        enhanced_sim = base_similarity * director_factor * writer_factor * cast_factor * thematic_factor * stylistic_factor * extra_factor
         
         # Apply post-processing boost for explicit shared attributes
         boost = self._calculate_similarity_boost(lib_film, ex_film)

@@ -7,11 +7,12 @@ import os
 import re
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 from datetime import datetime, timedelta
 import json
 from pathlib import Path
 
+from dataclasses import replace
 from film_agent import MatchingAgent, TMDbClient
 from config import get_openai_api_key, get_tmdb_api_key
 from query_intent_parser import QueryIntentParser, QueryIntent
@@ -329,7 +330,18 @@ class ChatbotAgent:
         # Apply filters to library
         filtered_library_df = self._apply_library_filters(library_df, intent)
         print(f"[ChatbotAgent] After library filters: {len(filtered_library_df)} films (from {len(library_df)} total)")
-        
+        genre_fallback_note: Optional[str] = None
+        # If genre filter yielded 0 and user asked for genres (e.g. "spy movies"), fall back to matching terms in overview/keywords/themes/title
+        if len(filtered_library_df) == 0 and intent.genres:
+            fallback_intent = replace(intent, genres=None)
+            filtered_no_genre = self._apply_library_filters(library_df, fallback_intent)
+            filtered_library_df = self._filter_library_by_text_terms(filtered_no_genre, intent.genres)
+            if len(filtered_library_df) > 0:
+                genre_fallback_note = (
+                    f"No exact genre match for \"{', '.join(intent.genres)}\"; showing titles that mention "
+                    "this in plot, keywords, or themes."
+                )
+                print(f"[ChatbotAgent] Genre fallback: {len(filtered_library_df)} films match text terms (from {len(filtered_no_genre)} without genre filter)")
         if len(filtered_library_df) == 0:
             raw = "No library films match the specified filters."
             intent_sum = self._intent_summary(intent)
@@ -350,9 +362,49 @@ class ChatbotAgent:
             }
         
         # Apply filters to exhibitions
+        territory_fallback_note: Optional[str] = None
         filtered_exhibitions_df = self._apply_exhibition_filters(exhibitions_df, intent)
         print(f"[ChatbotAgent] After exhibition filters: {len(filtered_exhibitions_df)} exhibitions (from {len(exhibitions_df)} total)")
-        
+        # If territory was requested but no exhibitions in that territory, fall back to all exhibitions
+        # so the user still gets recommendations (e.g. "thrillers to emphasize in the US" -> show thrillers)
+        if len(filtered_exhibitions_df) == 0 and intent.territory:
+            fallback_intent = replace(intent, territory=None)
+            filtered_exhibitions_df = self._apply_exhibition_filters(exhibitions_df, fallback_intent)
+            if len(filtered_exhibitions_df) > 0:
+                territory_fallback_note = (
+                    f"No exhibitions found in {intent.territory}; showing recommendations "
+                    "based on all exhibition data."
+                )
+                intent = fallback_intent
+        # If exhibition date was requested but no exhibitions on that date, fall back to all exhibitions
+        if len(filtered_exhibitions_df) == 0 and (getattr(intent, "exhibition_date_start", None) or getattr(intent, "exhibition_date_end", None)):
+            fallback_intent = replace(intent, exhibition_date_start=None, exhibition_date_end=None)
+            filtered_exhibitions_df = self._apply_exhibition_filters(exhibitions_df, fallback_intent)
+            if len(filtered_exhibitions_df) > 0:
+                date_str = str(getattr(intent, "exhibition_date_start", "") or getattr(intent, "exhibition_date_end", ""))
+                if territory_fallback_note is None:
+                    territory_fallback_note = (
+                        f"No exhibitions found on {date_str}; showing recommendations "
+                        "based on all exhibition data."
+                    )
+                else:
+                    territory_fallback_note += f" No exhibitions on {date_str}."
+                intent = fallback_intent
+        # If user asked for "something like [Film X]" but that film isn't in current exhibitions, fall back to matching to current market (keep genres/vibe)
+        if len(filtered_exhibitions_df) == 0 and getattr(intent, "match_to_specific_film", None):
+            ref_film = intent.match_to_specific_film
+            fallback_intent = replace(intent, match_to_specific_film=None)
+            filtered_exhibitions_df = self._apply_exhibition_filters(exhibitions_df, fallback_intent)
+            if len(filtered_exhibitions_df) > 0:
+                if territory_fallback_note is None:
+                    territory_fallback_note = (
+                        f"\"{ref_film}\" wasn't found in current exhibitions; showing library titles "
+                        "that match the vibe of your request with what's playing now."
+                    )
+                else:
+                    territory_fallback_note += f" \"{ref_film}\" wasn't in exhibitions; showing matches to current market."
+                intent = fallback_intent
+
         if len(filtered_exhibitions_df) == 0:
             raw = "No exhibitions match the specified filters."
             intent_sum = self._intent_summary(intent)
@@ -446,91 +498,148 @@ class ChatbotAgent:
             except Exception as e:
                 print(f"[ChatbotAgent] Warning: query embedding failed: {e}")
 
-        # Weight query relevance higher when prompt is theme/intent driven
+        # Weight query vs exhibition relevance by intent
         q_lower = query.lower()
-        w_query = 0.75
-        if "theme" in q_lower or "themes" in q_lower:
-            w_query = 0.85
-        if "existential" in q_lower:
-            w_query = max(w_query, 0.9)
-        # If the prompt is explicitly about what's in theaters / current market, give exhibitions more weight
-        if any(kw in q_lower for kw in ["in theaters", "in theatres", "current exhibitions", "what's showing", "now showing"]):
-            w_query = max(0.6, w_query - 0.15)
+        w_query = 0.8  # Default: query intent has strong weight
+        # When user is explicitly matching to a specific exhibition title, emphasize exhibition match over query
         if intent.match_to_specific_film:
-            w_query = max(0.6, w_query - 0.15)
-        w_ex = 1.0 - w_query
+            w_query = 0.25
+            w_ex = 0.75
+        else:
+            if "theme" in q_lower or "themes" in q_lower:
+                w_query = 0.88
+            if "existential" in q_lower:
+                w_query = max(w_query, 0.92)
+            # When user specified filters (genres, lead gender, year, etc.), weight query/match to intent more
+            if intent.genres or intent.lead_gender or intent.year_start or intent.year_end:
+                w_query = max(w_query, 0.85)
+            # If the prompt is explicitly about what's in theaters / current market, give exhibitions more weight
+            if any(kw in q_lower for kw in ["in theaters", "in theatres", "current exhibitions", "what's showing", "now showing"]):
+                w_query = max(0.6, w_query - 0.15)
+            w_ex = 1.0 - w_query
 
-        # For each library film, find its best exhibition match (excluding exact same film), then compute
-        # enhanced exhibition similarity + composite relevance score.
-        scored = []
-        topk = min(8, len(ex_rows)) if len(ex_rows) else 0
+        # For each library film, keep top-K exhibition candidates (excluding exact same film), then when
+        # building the final list prefer exhibitions from cities we haven't used yet (diversify locations).
+        def _location_key(loc: str) -> str:
+            """Normalize location for diversity (e.g. 'Venue (Portland, OR)' -> 'Portland, OR')."""
+            if not loc or not isinstance(loc, str):
+                return loc or ""
+            m = re.search(r"\(([^)]+)\)\s*$", loc.strip())
+            return m.group(1).strip() if m else loc.strip()
+
+        topk = min(12, len(ex_rows)) if len(ex_rows) else 0
+        lib_candidates = []  # list of (lib_row, list of {ex_row, exhibition_similarity, relevance_score})
         for lib_idx, lib_row in enumerate(lib_rows):
-            # Pick best non-exact exhibition candidate
-            best_ex_idx = None
-            best_base = None
-            if topk > 0:
-                col = base_matrix[:, lib_idx]
-                # Top-K candidates by base similarity
-                # np.argpartition expects kth positions; use topk-1 for the top-k set
-                cand = np.argpartition(-col, topk - 1)[:topk]
-                cand = cand[np.argsort(-col[cand])]
-                for ex_i in cand:
-                    ex_row = ex_rows[int(ex_i)]
-                    if _is_exact_same_film(lib_row, ex_row):
-                        continue
-                    best_ex_idx = int(ex_i)
-                    best_base = float(col[int(ex_i)])
-                    break
-
-            if best_ex_idx is None:
-                # No valid exhibition match (or all were exact same film)
+            if topk <= 0:
                 continue
+            col = base_matrix[:, lib_idx]
+            cand = np.argpartition(-col, min(topk, len(col)) - 1)[:topk]
+            cand = cand[np.argsort(-col[cand])]
+            candidates_for_lib = []
+            for ex_i in cand:
+                ex_row = ex_rows[int(ex_i)]
+                if _is_exact_same_film(lib_row, ex_row):
+                    continue
+                base_sim = float(col[int(ex_i)])
+                exhibition_similarity = self.matching_agent._calculate_enhanced_similarity(
+                    lib_row,
+                    ex_row,
+                    base_sim,
+                    director_weight=intent.director_weight,
+                    writer_weight=intent.writer_weight,
+                    cast_weight=intent.cast_weight,
+                    thematic_weight=intent.thematic_weight,
+                    stylistic_weight=intent.stylistic_weight,
+                    extra_weights=intent.column_weights,
+                )
+                relevance_score = (w_query * float(query_sims[lib_idx])) + (w_ex * float(exhibition_similarity))
+                candidates_for_lib.append({
+                    "exhibition_film": ex_row,
+                    "exhibition_similarity": float(exhibition_similarity),
+                    "relevance_score": relevance_score,
+                })
+                if len(candidates_for_lib) >= 10:
+                    break
+            if not candidates_for_lib:
+                continue
+            best_relevance = max(c["relevance_score"] for c in candidates_for_lib)
+            lib_candidates.append((lib_row, query_sims[lib_idx], candidates_for_lib, best_relevance))
 
-            ex_row = ex_rows[best_ex_idx]
-            exhibition_similarity = self.matching_agent._calculate_enhanced_similarity(
-                lib_row,
-                ex_row,
-                best_base,
-                director_weight=intent.director_weight,
-                writer_weight=intent.writer_weight,
-                cast_weight=intent.cast_weight,
-                thematic_weight=intent.thematic_weight,
-                stylistic_weight=intent.stylistic_weight,
-            )
+        lib_candidates.sort(key=lambda x: x[3], reverse=True)
 
-            relevance_score = (w_query * float(query_sims[lib_idx])) + (w_ex * float(exhibition_similarity))
-            scored.append({
-                "library_film": lib_row,
-                "exhibition_film": ex_row,
-                "relevance_score": relevance_score,
-                "exhibition_similarity": float(exhibition_similarity),
-                "query_similarity": float(query_sims[lib_idx]),
-            })
-
-        scored.sort(key=lambda x: x["relevance_score"], reverse=True)
-
-        # Deduplicate by title signature to avoid multiple franchise entries dominating.
+        # Build unique_matches with location diversity: prefer exhibitions from cities not yet used.
         seen_sig = set()
+        used_location_keys = set()
         unique_matches = []
-        for item in scored:
-            sig = _title_signature(item["library_film"].get("title", ""))
+        for lib_row, query_sim, candidates_for_lib, _ in lib_candidates:
+            sig = _title_signature(lib_row.get("title", ""))
             if sig and sig in seen_sig:
                 continue
-            if sig:
-                seen_sig.add(sig)
-            unique_matches.append(item)
             if len(unique_matches) >= top_n:
                 break
+            # Prefer candidate from a city we haven't used yet; among those (or if none), pick best by relevance.
+            best_item = None
+            best_score = -1.0
+            best_diverse_item = None
+            best_diverse_score = -1.0
+            for c in candidates_for_lib:
+                loc_key = _location_key(c["exhibition_film"].get("location") or "")
+                is_new_location = loc_key and loc_key not in used_location_keys
+                score = c["relevance_score"]
+                if is_new_location and score > best_diverse_score:
+                    best_diverse_item = c
+                    best_diverse_score = score
+                if score > best_score:
+                    best_item = c
+                    best_score = score
+            if best_diverse_item is not None:
+                best_item = best_diverse_item
+            elif best_item is None:
+                best_item = candidates_for_lib[0]
+            if sig:
+                seen_sig.add(sig)
+            loc_key = _location_key(best_item["exhibition_film"].get("location") or "")
+            if loc_key:
+                used_location_keys.add(loc_key)
+            # Top exhibition matches for this library film (for overview: "relevant to these titles")
+            exhibition_matches_list = sorted(
+                candidates_for_lib,
+                key=lambda c: c["exhibition_similarity"],
+                reverse=True,
+            )[:5]
+            exhibition_matches = [
+                {
+                    "title": c["exhibition_film"].get("title", ""),
+                    "location": c["exhibition_film"].get("location", ""),
+                    "similarity": c["exhibition_similarity"],
+                }
+                for c in exhibition_matches_list
+            ]
+            unique_matches.append({
+                "library_film": lib_row,
+                "exhibition_film": best_item["exhibition_film"],
+                "relevance_score": best_item["relevance_score"],
+                "exhibition_similarity": best_item["exhibition_similarity"],
+                "query_similarity": float(query_sim),
+                "exhibition_matches": exhibition_matches,
+            })
         
-        # Generate recommendations with reasoning
+        # Omit matches with exhibition similarity < 0.5; fewer than top_n results is ok
+        unique_matches = [m for m in unique_matches if (m.get("exhibition_similarity") or 0) >= 0.5]
+        
+        # Generate recommendations with reasoning (query-based + exhibition relevance)
         recommendations = []
         for match in unique_matches[:top_n]:
             lib = match["library_film"]
             ex = match["exhibition_film"]
-            
-            # Generate reasoning
             reasoning = self._generate_dynamic_reasoning(
-                lib, ex, match["exhibition_similarity"], intent
+                lib,
+                ex,
+                match["exhibition_similarity"],
+                intent,
+                query=query,
+                query_similarity=match["query_similarity"],
+                exhibition_matches=match.get("exhibition_matches") or [],
             )
             
             # Get poster
@@ -559,7 +668,7 @@ class ChatbotAgent:
                 "tmdb_id": lib.get("tmdb_id"),
             })
         
-        return {
+        out = {
             "query_type": "dynamic",
             "intent": intent,
             "recommendations": recommendations,
@@ -567,7 +676,87 @@ class ChatbotAgent:
             "territory": intent.territory,
             "context_mode": "new_search" if intent.is_new_search else "refinement",
         }
+        if territory_fallback_note:
+            out["territory_fallback_note"] = territory_fallback_note
+        if genre_fallback_note:
+            out["genre_fallback_note"] = genre_fallback_note
+        return out
     
+    def _apply_column_filters_to_df(self, df: pd.DataFrame, column_filters: Optional[Dict[str, Any]]) -> pd.DataFrame:
+        """
+        Apply dynamic column_filters to a DataFrame.
+        column_filters: { column_name: value } where value is:
+          - scalar (str/number): exact match (str: case-insensitive substring)
+          - list: row matches if any element matches (substring for str)
+          - dict with "min" and/or "max": numeric range (inclusive)
+        Only columns present in df are applied; unknown columns are ignored.
+        """
+        if not column_filters or not isinstance(column_filters, dict):
+            return df
+        filtered_df = df
+        for col, value in column_filters.items():
+            if col not in filtered_df.columns or value is None:
+                continue
+            ser = filtered_df[col]
+            if isinstance(value, dict):
+                # Numeric range: apply min and max in one mask
+                min_v = value.get("min")
+                max_v = value.get("max")
+                try:
+                    num_ser = pd.to_numeric(ser, errors="coerce")
+                    mask = pd.Series(True, index=filtered_df.index)
+                    if min_v is not None:
+                        mask = mask & (num_ser >= float(min_v))
+                    if max_v is not None:
+                        mask = mask & (num_ser <= float(max_v))
+                    filtered_df = filtered_df[mask]
+                except (TypeError, ValueError):
+                    pass
+            elif isinstance(value, list):
+                # Any of
+                if not value:
+                    continue
+                val_strs = [str(v).strip().lower() for v in value if v is not None and str(v).strip()]
+                if not val_strs:
+                    continue
+                ser_str = ser.astype(str).str.lower()
+                mask = ser_str.str.contains("|".join(re.escape(v) for v in val_strs), na=False)
+                filtered_df = filtered_df[mask]
+            else:
+                # Scalar: exact or substring
+                val_str = str(value).strip().lower()
+                if not val_str:
+                    continue
+                ser_str = ser.astype(str).str.lower()
+                if pd.api.types.is_numeric_dtype(ser):
+                    try:
+                        num_val = float(value)
+                        filtered_df = filtered_df[pd.to_numeric(ser, errors="coerce") == num_val]
+                    except (TypeError, ValueError):
+                        filtered_df = filtered_df[ser_str.str.contains(re.escape(val_str), na=False)]
+                else:
+                    filtered_df = filtered_df[ser_str.str.contains(re.escape(val_str), na=False)]
+        return filtered_df
+
+    def _filter_library_by_text_terms(
+        self, library_df: pd.DataFrame, terms: List[str]
+    ) -> pd.DataFrame:
+        """Filter library to rows where any of overview, keywords, thematic_descriptors (or title) contains any of the given terms (substring, case-insensitive). Used when genre filter yields 0 (e.g. 'spy' is not a genre but appears in plot/keywords)."""
+        if not terms:
+            return library_df
+        terms_clean = [str(t).strip().lower() for t in terms if t and str(t).strip()]
+        if not terms_clean:
+            return library_df
+        pattern = "|".join(re.escape(t) for t in terms_clean)
+        text_columns = ["overview", "keywords", "thematic_descriptors", "stylistic_descriptors", "title"]
+        mask = pd.Series(False, index=library_df.index)
+        for col in text_columns:
+            if col not in library_df.columns:
+                continue
+            ser = library_df[col].astype(str).str.lower()
+            mask = mask | ser.str.contains(pattern, na=False)
+        return library_df[mask]
+
     def _apply_library_filters(self, library_df: pd.DataFrame, intent: QueryIntent) -> pd.DataFrame:
         """Apply filters to library DataFrame based on query intent."""
         filtered_df = library_df.copy()
@@ -578,10 +767,22 @@ class ChatbotAgent:
         if intent.year_end:
             filtered_df = filtered_df[filtered_df["release_year"] <= intent.year_end]
         
-        # Genre filters
+        # Genre filters (expand aliases so "sci-fi" matches "science fiction" in library data)
         if intent.genres:
+            genre_aliases: Dict[str, List[str]] = {
+                "sci-fi": ["sci-fi", "science fiction"],
+                "science fiction": ["sci-fi", "science fiction"],
+            }
+            pattern_parts: List[str] = []
+            for g in intent.genres:
+                g_lower = (g or "").strip().lower()
+                if g_lower in genre_aliases:
+                    pattern_parts.extend(genre_aliases[g_lower])
+                else:
+                    pattern_parts.append(g_lower)
+            pattern = "|".join(re.escape(p) for p in set(pattern_parts))
             genre_mask = filtered_df["genres"].astype(str).str.lower()
-            genre_filter = genre_mask.str.contains("|".join(intent.genres), na=False)
+            genre_filter = genre_mask.str.contains(pattern, na=False)
             filtered_df = filtered_df[genre_filter]
         
         # Director filters
@@ -596,18 +797,20 @@ class ChatbotAgent:
             writer_filter = writer_mask.str.contains("|".join([w.lower() for w in intent.specific_writers]), na=False)
             filtered_df = filtered_df[writer_filter]
         
-        # Lead gender filter (uses pre-computed data from library)
+        # Lead gender filter (uses pre-computed data from library; case-insensitive)
         if intent.lead_gender:
             if "lead_gender" in filtered_df.columns:
-                # Filter using stored lead_gender field
-                filtered_df = filtered_df[filtered_df["lead_gender"] == intent.lead_gender]
-                print(f"[ChatbotAgent] Filtered to {len(filtered_df)} films with {intent.lead_gender} leads")
+                target = (intent.lead_gender or "").strip().lower()
+                if target in ("female", "male"):
+                    col_lower = filtered_df["lead_gender"].astype(str).str.strip().str.lower()
+                    filtered_df = filtered_df[col_lower == target]
+                    print(f"[ChatbotAgent] Filtered to {len(filtered_df)} films with {intent.lead_gender} leads")
             else:
                 print(f"[ChatbotAgent] Warning: 'lead_gender' column not found in library. Run enrich_with_lead_gender.py first.")
         
-        # Note: Gender filters for writers/directors would require additional data
-        # (gender information not in current library structure)
-        # This could be added via external API or database lookup
+        # Dynamic column_filters (any library column)
+        if intent.column_filters:
+            filtered_df = self._apply_column_filters_to_df(filtered_df, intent.column_filters)
         
         return filtered_df
     
@@ -676,19 +879,51 @@ class ChatbotAgent:
         filtered_df = exhibitions_df.copy()
         
         # When user specifies ONE film to match against, restrict exhibitions to that film only.
-        # All library titles will be matched against this single film (similarity target).
+        # Use flexible partial matching: try multiple variants so unconventional input still matches.
         if intent.match_to_specific_film:
-            film_lower = intent.match_to_specific_film.lower().strip()
-            title_mask = filtered_df["title"].astype(str).str.lower()
-            filtered_df = filtered_df[title_mask.str.contains(film_lower, na=False)]
+            film_raw = intent.match_to_specific_film.strip()
+            film_lower = film_raw.lower()
+            df_before_film = filtered_df
+            # Build search variants: full phrase, last N words, without leading "the", punctuation-stripped words
+            variants = [film_lower]
+            words = [w for w in re.split(r"[\s,;]+", film_lower) if w]
+            for n in (2, 3, 1):
+                if len(words) >= n and n >= 1:
+                    core = " ".join(words[-n:])
+                    if len(core) >= 2 and core not in variants:
+                        variants.append(core)
+            # Without leading "the" (e.g. "the bone temple" -> "bone temple")
+            if film_lower.startswith("the ") and len(film_lower) > 4:
+                v = film_lower[4:].strip()
+                if v not in variants:
+                    variants.append(v)
+            # Try each variant until one matches
+            for search_phrase in variants:
+                if len(search_phrase) < 2:
+                    continue
+                title_mask = df_before_film["title"].astype(str).str.lower()
+                filtered_df = df_before_film[title_mask.str.contains(re.escape(search_phrase), na=False)]
+                if len(filtered_df) > 0:
+                    break
             if len(filtered_df) == 0:
                 return filtered_df
         
-        # Territory filter
-        if intent.territory:
-            filtered_df = filtered_df[
-                filtered_df["country"].str.upper() == intent.territory.upper()
-            ]
+        # Territory filter (normalize US/USA and UK/GB so data matches either)
+        if intent.territory and "country" in filtered_df.columns:
+            ter = intent.territory.upper()
+            country_upper = filtered_df["country"].astype(str).str.strip().str.upper()
+            mask = country_upper == ter
+            if ter == "US":
+                mask = mask | (country_upper == "USA")
+            elif ter == "UK":
+                mask = mask | (country_upper == "GB")
+            filtered_df = filtered_df[mask]
+
+        # City filter: when user asks for a specific city, only exhibitions in that city
+        if intent.city:
+            loc_col = filtered_df["location"].astype(str).str
+            city_lower = intent.city.lower()
+            filtered_df = filtered_df[loc_col.lower().str.contains(re.escape(city_lower), na=False)]
         
         # Time period filter: skip when matching to a specific film. We use all exhibitions
         # of that film; "this month" etc. is about when we promote, not when they screen.
@@ -718,59 +953,104 @@ class ChatbotAgent:
                 return False
             
             filtered_df = filtered_df[filtered_df["scheduled_dates"].apply(_has_date_in_range)]
+
+        # Exhibition date or date range: only exhibitions playing on the given date(s)
+        if (intent.exhibition_date_start or intent.exhibition_date_end) and "scheduled_dates" in filtered_df.columns:
+            start = intent.exhibition_date_start or intent.exhibition_date_end
+            end = intent.exhibition_date_end or intent.exhibition_date_start
+            if start and end:
+
+                def _has_date_in_exhibition_range(dates_str: str) -> bool:
+                    if pd.isna(dates_str) or not dates_str:
+                        return False
+                    for date_str in str(dates_str).split(","):
+                        date_str = date_str.strip()
+                        try:
+                            date_obj = datetime.strptime(date_str[:10], "%Y-%m-%d").date()
+                            if start <= date_obj <= end:
+                                return True
+                        except (ValueError, AttributeError):
+                            continue
+                    return False
+
+                filtered_df = filtered_df[filtered_df["scheduled_dates"].apply(_has_date_in_exhibition_range)]
+        
+        # Dynamic column_filters (any exhibition column)
+        if intent.column_filters:
+            filtered_df = self._apply_column_filters_to_df(filtered_df, intent.column_filters)
         
         return filtered_df
     
     def _generate_dynamic_reasoning(
-        self, library_film: Dict, exhibition_film: Dict, similarity: float, intent: QueryIntent
+        self,
+        library_film: Dict,
+        exhibition_film: Dict,
+        similarity: float,
+        intent: QueryIntent,
+        *,
+        query: str = "",
+        query_similarity: float = 0.0,
+        exhibition_matches: Optional[List[Dict]] = None,
     ) -> str:
-        """Generate reasoning: (1) why recommended from similarity calc, (2) broader market trends."""
+        """Generate reasoning: (1) why recommended based on user query, (2) exhibition titles it has relevance for, (3) brief market context."""
         if not self.openai_client:
             return f"Recommended based on similarity score: {similarity:.3f}"
-        
+        exhibition_matches = exhibition_matches or []
         lib_text = self.matching_agent._film_to_text(library_film)
         ex_text = self.matching_agent._film_to_text(exhibition_film)
-        
-        emphasis_context = []
-        if intent.director_weight > 0.5:
-            emphasis_context.append("director matching")
-        if intent.writer_weight > 0.5:
-            emphasis_context.append("writer matching")
-        if intent.cast_weight > 0.5:
-            emphasis_context.append("cast matching")
-        if intent.thematic_weight > 0.5:
-            emphasis_context.append("thematic/genre alignment")
-        if intent.stylistic_weight > 0.5:
-            emphasis_context.append("stylistic similarity")
-        emphasis_str = ", ".join(emphasis_context) if emphasis_context else "general similarity"
-        
+        intent_bits = []
+        if intent.genres:
+            intent_bits.append(f"genres: {', '.join(intent.genres)}")
+        if intent.lead_gender:
+            intent_bits.append(f"lead gender: {intent.lead_gender}")
+        if intent.year_start or intent.year_end:
+            intent_bits.append(f"year range: {intent.year_start or 'any'}-{intent.year_end or 'any'}")
+        if intent.match_to_specific_film:
+            intent_bits.append(f"match to: {intent.match_to_specific_film}")
+        intent_str = "; ".join(intent_bits) if intent_bits else "general relevance"
+        ex_list = "\n".join(
+            f"- {m.get('title', '')} (similarity {m.get('similarity', 0):.2f})"
+            for m in exhibition_matches if m.get("title")
+        ) or "- (none listed)"
         prompt = (
+            f"User query: \"{query}\"\n"
+            f"Parsed intent: {intent_str}\n"
+            f"Query-to-film relevance: {query_similarity:.2f}. Exhibition match score: {similarity:.2f}.\n\n"
             f"Library Film:\n{lib_text}\n\n"
-            f"Exhibition Film (currently in theaters):\n{ex_text}\n\n"
-            f"Similarity score: {similarity:.3f}. Query emphasis: {emphasis_str}.\n\n"
-            "Write 2-3 sentences. Structure strictly:\n\n"
-            "1. FIRST: Explain why this library film is being recommended based on the similarity calculation. "
-            "Be specific: name the exhibition film, the score, and what drove the match (shared personnel, genres, themes, or style). "
-            "This match explanation must come first.\n\n"
-            "2. THEN: Briefly note how this film fits into broader market trends. "
-            "Do not start with or lead with OTT platforms (AVOD, SVOD, FAST); that context is understood."
+            f"Primary exhibition match (currently in theaters):\n{ex_text}\n\n"
+            f"Other exhibition titles this library film has relevance for:\n{ex_list}\n\n"
+            "Write a short recommendation overview (2-4 sentences). Structure strictly:\n\n"
+            "1. FIRST: Why this film is being recommended based on the user's query. "
+            "Connect what the user asked for (genres, themes, timing, etc.) to this title. "
+            "This must come first.\n\n"
+            "2. THEN: Which exhibition titles it has relevance for. "
+            "Name the primary match and 1-2 others from the list if relevant; briefly say what drives the match (genres, themes, personnel, style).\n\n"
+            "3. OPTIONALLY: One brief sentence on how it fits broader market context. "
+            "Do not lead with OTT platforms (AVOD, SVOD, FAST); that context is understood."
         )
-        
         try:
             response = self.openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "You are a content distribution assistant helping monetize a company's content library. Explain (1) why the film is recommended from the similarity match to the exhibition film, then (2) how it fits broader market trends. Do not preface every response with OTT platforms."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "You are a content distribution assistant. Write a recommendation overview that (1) explains why this film matches the user's query, (2) names exhibition titles it has relevance for and why, (3) optionally notes broader market fit. Be specific and concise. Vary your phrasing and tone so each response feels distinct—avoid repeating the same sentence structures or openings. Do not preface with OTT platforms.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
-                max_tokens=300,
-                temperature=0.7
+                max_tokens=380,
+                temperature=0.85,
             )
             reasoning = response.choices[0].message.content.strip()
             return reasoning
         except Exception as e:
             print(f"[ChatbotAgent] Error generating dynamic reasoning: {e}")
-            return f"Recommended based on similarity score: {similarity:.3f}"
+            fallback = f"Matches your query (relevance {query_similarity:.2f}). Exhibition match: {exhibition_film.get('title', '')} (score {similarity:.2f})."
+            if exhibition_matches:
+                others = ", ".join(m.get("title", "") for m in exhibition_matches[1:4] if m.get("title"))
+                if others:
+                    fallback += f" Also relevant to: {others}."
+            return fallback
     
     def _intent_summary(self, intent: QueryIntent) -> str:
         """Brief readable summary of active filters from query intent."""
@@ -781,6 +1061,13 @@ class ChatbotAgent:
             parts.append(f"territory {intent.territory}")
         if intent.time_period:
             parts.append(f"time period '{intent.time_period}' (e.g. right now / this week / this month)")
+        if getattr(intent, "exhibition_date_start", None) or getattr(intent, "exhibition_date_end", None):
+            start = getattr(intent, "exhibition_date_start", None)
+            end = getattr(intent, "exhibition_date_end", None)
+            if start and end and start != end:
+                parts.append(f"exhibition date range {start} to {end}")
+            elif start or end:
+                parts.append(f"exhibition date {start or end}")
         if intent.year_start or intent.year_end:
             y = [str(x) for x in [intent.year_start, intent.year_end] if x]
             parts.append(f"year range {'-'.join(y)}")
@@ -792,6 +1079,10 @@ class ChatbotAgent:
             parts.append(f"writer(s) {', '.join(intent.specific_writers)}")
         if intent.match_to_specific_film:
             parts.append(f"match to film '{intent.match_to_specific_film}'")
+        if intent.column_filters:
+            parts.append(f"column filters: {', '.join(str(k) for k in intent.column_filters)}")
+        if intent.column_weights:
+            parts.append(f"column boost: {', '.join(str(k) for k in intent.column_weights)}")
         return "; ".join(parts) if parts else "no filters"
 
     def _genre_sample_from_df(self, df: pd.DataFrame, column: str = "genres", top_n: int = 12) -> List[str]:
@@ -960,11 +1251,11 @@ Return only the 2-letter country code, or "None" if no country is mentioned."""
             response = self.openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "You are a content distribution assistant helping monetize a company's content library. Explain (1) why the film is recommended from the similarity match to the exhibition film, then (2) how it fits broader market trends. Do not preface every response with OTT platforms."},
+                    {"role": "system", "content": "You are a content distribution assistant helping monetize a company's content library. Explain (1) why the film is recommended from the similarity match to the exhibition film, then (2) how it fits broader market trends. Vary your phrasing so each recommendation reads distinctly. Do not preface every response with OTT platforms."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=250,
-                temperature=0.7
+                temperature=0.85
             )
             reasoning = response.choices[0].message.content.strip()
             return reasoning
@@ -1264,11 +1555,11 @@ Return only the 2-letter country code, or "None" if no country is mentioned."""
             response = self.openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "You are a content distribution assistant helping monetize a company's content library. Explain (1) why the film is recommended from its match to exhibition/trend data, then (2) how it fits broader market trends. Do not preface every response with OTT platforms."},
+                    {"role": "system", "content": "You are a content distribution assistant helping monetize a company's content library. Explain (1) why the film is recommended from its match to exhibition/trend data, then (2) how it fits broader market trends. Vary your phrasing so each recommendation reads distinctly. Do not preface every response with OTT platforms."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=250,
-                temperature=0.7
+                temperature=0.85
             )
             reasoning = response.choices[0].message.content.strip()
             return reasoning
