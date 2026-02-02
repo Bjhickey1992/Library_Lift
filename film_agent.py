@@ -1240,20 +1240,85 @@ Return ONLY valid JSON: {{"thematic_descriptors": "...", "stylistic_descriptors"
     ) -> pd.DataFrame:
         """
         Scrape cinema exhibitions progressively, adding to Excel as we go.
-        
+        Resumable: if the script times out, run again to load existing file,
+        skip cinemas already present (by programme_url), and continue.
+
         Processes each cinema one by one:
         1. Scrapes screenings
         2. Enriches with TMDb metadata
         3. Adds to cumulative DataFrame
         4. Writes to Excel after each cinema (or periodically)
         """
+        from pathlib import Path
+        out_path = Path(output_path)
+        df_existing: Optional[pd.DataFrame] = None
+        done_urls: set = set()
+        if out_path.exists():
+            try:
+                df_existing = pd.read_excel(output_path)
+                if len(df_existing) > 0 and "programme_url" in df_existing.columns:
+                    done_urls = set(df_existing["programme_url"].dropna().astype(str).unique())
+                    print(f"[ExhibitionAgent] Resuming: found existing file with {len(df_existing)} rows, {len(done_urls)} cinemas already done.")
+                else:
+                    df_existing = None
+                    done_urls = set()
+            except Exception as e:
+                print(f"[ExhibitionAgent] Could not load existing file for resume: {e}")
+                df_existing = None
+                done_urls = set()
+
         sources = self.load_cinema_sources(cinemas_yaml_path)
         print(f"\n[ExhibitionAgent] Scraping {len(sources)} enabled cinemas for next {weeks_ahead} weeks...")
         print(f"[ExhibitionAgent] Output file: {output_path}\n")
 
         all_enriched_rows: List[FilmRecord] = []
-        
+
+        def _aggregate_and_dates(raw_df: pd.DataFrame) -> pd.DataFrame:
+            def _sorted_unique_dates(series: pd.Series) -> str:
+                dates = []
+                for v in series.dropna().astype(str).tolist():
+                    for part in v.split(","):
+                        p = part.strip()
+                        if p and p not in dates:
+                            dates.append(p)
+                return ", ".join(sorted(set(dates)))
+            def _min_date(dates_str: str) -> Optional[str]:
+                parts = [p.strip() for p in (dates_str or "").split(",") if p.strip()]
+                return min(parts) if parts else None
+            def _max_date(dates_str: str) -> Optional[str]:
+                parts = [p.strip() for p in (dates_str or "").split(",") if p.strip()]
+                return max(parts) if parts else None
+            grouped = (
+                raw_df.groupby(["title", "country", "location", "programme_url"], dropna=False, as_index=False)
+                .agg(
+                    {
+                        "release_year": "first",
+                        "director": "first",
+                        "writers": "first",
+                        "producers": "first",
+                        "cinematographers": "first",
+                        "production_designers": "first",
+                        "cast": "first",
+                        "genres": "first",
+                        "tmdb_id": "first",
+                        "overview": "first",
+                        "keywords": "first",
+                        "tagline": "first",
+                        "thematic_descriptors": "first",
+                        "stylistic_descriptors": "first",
+                        "emotional_tone": "first",
+                        "scheduled_dates": _sorted_unique_dates,
+                    }
+                )
+            )
+            grouped["start_date"] = grouped["scheduled_dates"].apply(_min_date)
+            grouped["end_date"] = grouped["scheduled_dates"].apply(_max_date)
+            return grouped
+
         for idx, source in enumerate(sources, 1):
+            if source.programme_url in done_urls:
+                print(f"[ExhibitionAgent] Skipping cinema {idx}/{len(sources)}: {source.name} (already in file)")
+                continue
             print(f"[ExhibitionAgent] Processing cinema {idx}/{len(sources)}: {source.name}")
             
             # Add delay between requests to avoid rate limiting (except for first cinema)
@@ -1287,138 +1352,34 @@ Return ONLY valid JSON: {{"thematic_descriptors": "...", "stylistic_descriptors"
                     print(f"[ExhibitionAgent]     Progress: {i}/{len(screenings)}")
             
             print(f"[ExhibitionAgent]   Added {len([r for r in all_enriched_rows if r.programme_url == source.programme_url])} enriched films from {source.name}")
-            
-            # Write to Excel after each cinema (progressive save)
+            done_urls.add(source.programme_url)
+
+            # Write to Excel after each cinema (progressive save; merge with existing when resuming)
             if all_enriched_rows:
-                df = pd.DataFrame([asdict(r) for r in all_enriched_rows])
-                
-                # Aggregate multiple screenings per (title, country, location, programme_url)
-                def _sorted_unique_dates(series: pd.Series) -> str:
-                    dates = []
-                    for v in series.dropna().astype(str).tolist():
-                        for part in v.split(","):
-                            p = part.strip()
-                            if p and p not in dates:
-                                dates.append(p)
-                    dates = sorted(set(dates))
-                    return ", ".join(dates)
+                df_new = pd.DataFrame([asdict(r) for r in all_enriched_rows])
+                grouped_new = _aggregate_and_dates(df_new)
+                if df_existing is not None:
+                    combined = pd.concat([df_existing, grouped_new], ignore_index=True)
+                else:
+                    combined = grouped_new
+                combined.to_excel(output_path, index=False)
+                df_existing = combined
+                print(f"[ExhibitionAgent]   Saved {len(combined)} unique films to {output_path}")
 
-                grouped = (
-                    df.groupby(["title", "country", "location", "programme_url"], dropna=False, as_index=False)
-                    .agg(
-                        {
-                            "release_year": "first",
-                            "director": "first",
-                            "writers": "first",
-                            "producers": "first",
-                            "cinematographers": "first",
-                            "production_designers": "first",
-                            "cast": "first",
-                            "genres": "first",
-                            "tmdb_id": "first",
-                            "overview": "first",
-                            "keywords": "first",  # Add keywords
-                            "tagline": "first",  # Add tagline
-                            "thematic_descriptors": "first",  # Add LLM descriptors
-                            "stylistic_descriptors": "first",
-                            "emotional_tone": "first",
-                            "scheduled_dates": _sorted_unique_dates,
-                        }
-                    )
-                )
+        # Final state: df_existing has full data (from resume load and/or incremental writes)
+        if df_existing is None:
+            if not all_enriched_rows:
+                print(f"[ExhibitionAgent] No exhibitions found. Creating empty file.")
+                empty_df = pd.DataFrame(columns=[f.name for f in FilmRecord.__dataclass_fields__.values()])
+                empty_df.to_excel(output_path, index=False)
+                return empty_df
+            # One cinema processed but df_existing not set (shouldn't happen)
+            df_existing = _aggregate_and_dates(pd.DataFrame([asdict(r) for r in all_enriched_rows]))
+            df_existing.to_excel(output_path, index=False)
 
-                # Compute start/end from scheduled_dates
-                def _min_date(dates_str: str) -> Optional[str]:
-                    parts = [p.strip() for p in (dates_str or "").split(",") if p.strip()]
-                    return min(parts) if parts else None
-
-                def _max_date(dates_str: str) -> Optional[str]:
-                    parts = [p.strip() for p in (dates_str or "").split(",") if p.strip()]
-                    return max(parts) if parts else None
-
-                grouped["start_date"] = grouped["scheduled_dates"].apply(_min_date)
-                grouped["end_date"] = grouped["scheduled_dates"].apply(_max_date)
-                
-                grouped.to_excel(output_path, index=False)
-                print(f"[ExhibitionAgent]   Saved {len(grouped)} unique films to {output_path}")
-
-        if not all_enriched_rows:
-            print(f"[ExhibitionAgent] No exhibitions found. Creating empty file.")
-            empty_df = pd.DataFrame(columns=[f.name for f in FilmRecord.__dataclass_fields__.values()])
-            empty_df.to_excel(output_path, index=False)
-            return empty_df
-
-        # Final aggregation and save
-        df = pd.DataFrame([asdict(r) for r in all_enriched_rows])
-        
-        def _sorted_unique_dates(series: pd.Series) -> str:
-            dates = []
-            for v in series.dropna().astype(str).tolist():
-                for part in v.split(","):
-                    p = part.strip()
-                    if p and p not in dates:
-                        dates.append(p)
-            dates = sorted(set(dates))
-            return ", ".join(dates)
-
-        grouped = (
-            df.groupby(["title", "country", "location", "programme_url"], dropna=False, as_index=False)
-            .agg(
-                {
-                    "release_year": "first",
-                    "director": "first",
-                    "writers": "first",
-                    "producers": "first",
-                    "cinematographers": "first",
-                    "production_designers": "first",
-                    "cast": "first",
-                    "genres": "first",
-                    "tmdb_id": "first",
-                    "overview": "first",
-                    "keywords": "first",  # Add keywords
-                    "tagline": "first",  # Add tagline
-                    "thematic_descriptors": "first",  # Add LLM descriptors
-                    "stylistic_descriptors": "first",
-                    "emotional_tone": "first",
-                    "scheduled_dates": _sorted_unique_dates,
-                }
-            )
-        )
-
-        def _min_date(dates_str: str) -> Optional[str]:
-            parts = [p.strip() for p in (dates_str or "").split(",") if p.strip()]
-            return min(parts) if parts else None
-
-        def _max_date(dates_str: str) -> Optional[str]:
-            parts = [p.strip() for p in (dates_str or "").split(",") if p.strip()]
-            return max(parts) if parts else None
-
-        grouped["start_date"] = grouped["scheduled_dates"].apply(_min_date)
-        grouped["end_date"] = grouped["scheduled_dates"].apply(_max_date)
-        
-        grouped.to_excel(output_path, index=False)
-        print(f"\n[ExhibitionAgent] Final save: {len(grouped)} unique exhibition films")
-        print(f"[ExhibitionAgent] Exhibition file written to: {output_path}")
-        
-        # Generate embeddings for all exhibition films
-        if self.openai_client and len(grouped) > 0:
-            print(f"\n[ExhibitionAgent] Generating embeddings for {len(grouped)} exhibition films...")
-            embeddings_path = self._generate_exhibition_embeddings(grouped, output_path)
-            print(f"[ExhibitionAgent] Embeddings saved to: {embeddings_path}")
-        else:
-            if not self.openai_client:
-                print(f"[ExhibitionAgent] OpenAI API key not available - skipping embedding generation")
-        
-        # Generate embeddings for all exhibition films
-        if self.openai_client and len(grouped) > 0:
-            print(f"\n[ExhibitionAgent] Generating embeddings for {len(grouped)} exhibition films...")
-            embeddings_path = self._generate_exhibition_embeddings(grouped, output_path)
-            print(f"[ExhibitionAgent] Embeddings saved to: {embeddings_path}")
-        else:
-            if not self.openai_client:
-                print(f"[ExhibitionAgent] OpenAI API key not available - skipping embedding generation")
-        
-        return grouped
+        print(f"\n[ExhibitionAgent] Exhibition file written to: {output_path} ({len(df_existing)} unique films)")
+        # Embeddings are generated by Phase 2 script after Claude "need" step (see run_phase2_exhibitions.py)
+        return df_existing
     
     def scrape_imdb_trending(self, top_n: int = 50) -> List[FilmRecord]:
         """
@@ -1925,8 +1886,9 @@ class MatchingAgent:
         Calculate enhanced similarity using multiplicative approach with boost.
         
         Uses base similarity as foundation and multiplies by component match factors,
-        then adds post-processing boost. extra_weights: optional { column_name: weight }
-        to boost additional columns (e.g. genres, release_year) in the match.
+        then adds post-processing boost. Weights are passed in from intent (base or
+        query-adjusted); any field not modified by the query uses its base weight.
+        All weights (fixed + extra_weights) are normalized to sum 1.0 for this calculation.
         
         Args:
             lib_film: Library film dictionary

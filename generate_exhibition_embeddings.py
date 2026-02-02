@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Generate embeddings for existing upcoming_exhibitions.xlsx file"""
+"""Generate embeddings for existing upcoming_exhibitions.xlsx file (includes 'need' if present)."""
 
 import os
 import pandas as pd
@@ -7,30 +7,11 @@ import numpy as np
 from typing import List
 from openai import OpenAI
 
-# Load API key from environment variables or .env file
 from config import get_openai_api_key
 
-openai_key = get_openai_api_key()
 
-# Set in environment for compatibility
-os.environ["OPENAI_API_KEY"] = openai_key
-
-client = OpenAI(api_key=openai_key)
-
-print("="*80)
-print("GENERATING EMBEDDINGS FOR EXISTING EXHIBITIONS FILE")
-print("="*80)
-
-# Load existing exhibitions
-exhibitions_path = "upcoming_exhibitions.xlsx"
-print(f"\nLoading exhibitions from: {exhibitions_path}")
-ex_df = pd.read_excel(exhibitions_path)
-print(f"Loaded {len(ex_df)} exhibition films")
-
-# Convert to text for embedding (including overview)
-print("\nConverting films to text for embedding...")
-film_texts = []
-for _, row in ex_df.iterrows():
+def _row_to_embedding_text(row: pd.Series) -> str:
+    """Build text for embedding from one exhibition row (includes need if present)."""
     parts = []
     if pd.notna(row.get("title")):
         parts.append(f"Title: {row['title']}")
@@ -66,51 +47,63 @@ for _, row in ex_df.iterrows():
         parts.append(f"Tone: {row['emotional_tone']}")
     if pd.notna(row.get("need")):
         parts.append(f"Viewer needs: {row['need']}")
-    film_texts.append("\n".join(parts))
+    return "\n".join(parts) if parts else str(row.get("title", ""))
 
-# Generate embeddings in batches
-print(f"\nGenerating embeddings for {len(film_texts)} films...")
-embeddings: List[List[float]] = []
-batch_size = 100
-for i in range(0, len(film_texts), batch_size):
-    batch = film_texts[i:i + batch_size]
-    try:
-        response = client.embeddings.create(
-            model="text-embedding-3-small",
-            input=batch,
-            dimensions=1536
-        )
-        batch_embeddings = [item.embedding for item in response.data]
-        embeddings.extend(batch_embeddings)
-        print(f"  Generated embeddings for batch {i//batch_size + 1}/{(len(film_texts)-1)//batch_size + 1}...")
-    except Exception as e:
-        print(f"  Error creating embeddings for batch {i//batch_size + 1}: {e}")
-        embeddings.extend([[0.0] * 1536 for _ in batch])
 
-# Create metadata DataFrame
-print("\nCreating embeddings metadata...")
-embedding_data = []
-for i, (_, row) in enumerate(ex_df.iterrows()):
-    embedding_data.append({
-        "tmdb_id": row.get("tmdb_id"),
-        "title": row.get("title"),
-        "release_year": row.get("release_year"),
-        "country": row.get("country"),
-        "location": row.get("location"),
-    })
+def generate_exhibition_embeddings(
+    exhibitions_path: str = "upcoming_exhibitions.xlsx",
+    npy_path: str = "upcoming_exhibitions_embeddings.npy",
+    metadata_xlsx_path: str = "upcoming_exhibitions_embeddings.xlsx",
+) -> np.ndarray:
+    """
+    Load exhibition file, build text (including need), call OpenAI embeddings, save .npy and metadata .xlsx.
+    Returns the embeddings array.
+    """
+    os.environ["OPENAI_API_KEY"] = os.environ.get("OPENAI_API_KEY") or get_openai_api_key()
+    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
-embeddings_df = pd.DataFrame(embedding_data)
-embeddings_excel_path = "upcoming_exhibitions_embeddings.xlsx"
-embeddings_df.to_excel(embeddings_excel_path, index=False)
-print(f"  Saved metadata to: {embeddings_excel_path}")
+    ex_df = pd.read_excel(exhibitions_path)
+    if len(ex_df) == 0:
+        print("[generate_exhibition_embeddings] No rows; skipping.")
+        return np.array([])
 
-# Save embeddings as numpy array
-embeddings_array = np.array(embeddings)
-embeddings_npy_path = "upcoming_exhibitions_embeddings.npy"
-np.save(embeddings_npy_path, embeddings_array)
-print(f"  Saved embeddings array to: {embeddings_npy_path}")
-print(f"  Shape: {embeddings_array.shape} (films × dimensions)")
+    film_texts = [_row_to_embedding_text(row) for _, row in ex_df.iterrows()]
+    embeddings: List[List[float]] = []
+    batch_size = 100
+    for i in range(0, len(film_texts), batch_size):
+        batch = film_texts[i : i + batch_size]
+        try:
+            response = client.embeddings.create(
+                model="text-embedding-3-small",
+                input=batch,
+                dimensions=1536,
+            )
+            embeddings.extend([item.embedding for item in response.data])
+            print(f"  Generated embeddings batch {i // batch_size + 1}/{(len(film_texts) - 1) // batch_size + 1}...")
+        except Exception as e:
+            print(f"  Error creating embeddings for batch: {e}")
+            embeddings.extend([[0.0] * 1536 for _ in batch])
 
-print(f"\n[SUCCESS] Embeddings generated and saved!")
-print(f"  Total films: {len(ex_df)}")
-print(f"  Embeddings: {embeddings_array.shape}")
+    arr = np.array(embeddings)
+    np.save(npy_path, arr)
+    meta_cols = ["tmdb_id", "title", "release_year", "country", "location"]
+    meta_df = ex_df[[c for c in meta_cols if c in ex_df.columns]].copy()
+    meta_df.to_excel(metadata_xlsx_path, index=False)
+    return arr
+
+
+if __name__ == "__main__":
+    print("=" * 80)
+    print("GENERATING EMBEDDINGS FOR EXISTING EXHIBITIONS FILE")
+    print("=" * 80)
+    ex_path = "upcoming_exhibitions.xlsx"
+    print(f"\nLoading exhibitions from: {ex_path}")
+    ex_df = pd.read_excel(ex_path)
+    print(f"Loaded {len(ex_df)} exhibition films")
+    print("\nConverting films to text for embedding...")
+    arr = generate_exhibition_embeddings(
+        exhibitions_path=ex_path,
+        npy_path="upcoming_exhibitions_embeddings.npy",
+        metadata_xlsx_path="upcoming_exhibitions_embeddings.xlsx",
+    )
+    print(f"\n[SUCCESS] Embeddings generated and saved! Shape: {arr.shape}")

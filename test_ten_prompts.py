@@ -5,18 +5,18 @@ import time
 import json
 from chatbot_agent import ChatbotAgent
 
-# 10 varied new-search prompts (diverse: genre, territory, date, match-to-film, vibe, etc.)
+# 10 new varied new-search prompts (diverse: genre, territory, date, match-to-film, vibe, etc.)
 PROMPTS = [
-    "Show me thrillers we can push in the UK right now.",
-    "I want romance films that match what's playing on Valentine's Day 2026.",
-    "Edgy art-house movies are hitting this time of year, how can we capitalize on that?",
-    "New search: sci-fi with female leads for the US market.",
-    "What library titles pair well with Mauvais Sang?",
-    "Best action movies from the 2010s to emphasize in Los Angeles.",
-    "Show me dramas with strong thematic depth for current exhibitions.",
-    "Comedy films that fit the vibe of what's playing in February 2026.",
-    "I need something like 28 Years Later: The Bone Temple—do we have anything?",
-    "Recommend horror or suspense we can highlight for Doc Films in Chicago.",
+    "What do we have that pairs with Eternal Sunshine of the Spotless Mind?",
+    "Crime dramas from the 90s for the US.",
+    "Romantic comedies playing in Austin this February.",
+    "New search: something dark and existential for current exhibitions.",
+    "I want family-friendly titles we can push in Paris.",
+    "Best library matches for what's showing at American Cinematheque.",
+    "Mystery or thriller from the 2000s to emphasize right now.",
+    "Films with strong female leads that fit the current market.",
+    "What can we recommend for the Love Film Festival?",
+    "Indie or drama that matches the vibe of Punch-Drunk Love.",
 ]
 
 def run_test():

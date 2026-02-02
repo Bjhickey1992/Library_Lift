@@ -1,64 +1,84 @@
 #!/usr/bin/env python
-"""Phase 2: Exhibition Scraping (progressive, cinema by cinema)"""
+"""Phase 2: Exhibition Scraping (cinema only). After scraping: add 'need' via Claude, then OpenAI embeddings."""
 
 import os
-from film_agent import ExhibitionScrapingAgent
+import pandas as pd
+from pathlib import Path
 
-# Load API keys from environment variables or .env file
+from film_agent import ExhibitionScrapingAgent
 from config import get_openai_api_key, get_tmdb_api_key
+
+EXHIBITIONS_PATH = "upcoming_exhibitions.xlsx"
 
 tmdb_key = get_tmdb_api_key()
 openai_key = get_openai_api_key()
-
-# Set in environment for compatibility
 os.environ["TMDB_API_KEY"] = tmdb_key
 os.environ["OPENAI_API_KEY"] = openai_key
 
 exhibition_agent = ExhibitionScrapingAgent(openai_api_key=os.getenv("OPENAI_API_KEY"))
 
-print("Starting Phase 2: Exhibition Scraping...")
+print("Starting Phase 2: Exhibition Scraping (cinema only)...")
 print("This will:")
-print("  1. Scrape each cinema one by one")
-print("  2. Scrape IMDB top 50 trending films and TV")
-print("  3. Scrape Nielsen top 10 streaming data (streaming only)")
-print("  4. Add overview data from TMDB API")
-print("  5. Generate embeddings for all exhibition films")
-print("  6. Save exhibitions and embeddings to files\n")
+print("  1. Scrape each cinema one by one from cinemas.yaml, save upcoming_exhibitions.xlsx")
+print("  2. Add 'need' field via Claude LLM (viewer desires/needs per title)")
+print("  3. Generate embeddings via OpenAI for the full file, save .npy and metadata .xlsx\n")
 
-# Scrape cinema exhibitions
+# Step 1: Scrape cinema exhibitions only. Resumable: re-run to continue from existing file.
 exhibitions_df = exhibition_agent.build_exhibitions_progressively(
     cinemas_yaml_path="cinemas.yaml",
     weeks_ahead=4,
-    output_path="upcoming_exhibitions.xlsx",
+    output_path=EXHIBITIONS_PATH,
 )
 
-# Scrape IMDB trending
-print("\n" + "="*60)
-print("SCRAPING IMDB TRENDING")
-print("="*60)
-imdb_records = exhibition_agent.scrape_imdb_trending(top_n=50)
+if exhibitions_df is None or len(exhibitions_df) == 0:
+    print("\n[Phase 2] No exhibition data; skipping need and embeddings.")
+else:
+    # Step 2: Add 'need' field via Claude
+    try:
+        from config import get_anthropic_api_key
+        from add_need_field import add_need_to_dataframe
+        from anthropic import Anthropic
 
-# Scrape Nielsen streaming
-print("\n" + "="*60)
-print("SCRAPING NIELSEN STREAMING")
-print("="*60)
-nielsen_records = exhibition_agent.scrape_nielsen_streaming()
+        try:
+            api_key = get_anthropic_api_key()
+        except ValueError:
+            api_key = None
+        if api_key:
+            print("\n" + "=" * 60)
+            print("ADDING 'NEED' FIELD (Claude)")
+            print("=" * 60)
+            claude = Anthropic(api_key=api_key)
+            ex_path = Path(EXHIBITIONS_PATH)
+            ex_df = pd.read_excel(ex_path)
+            ex_df = add_need_to_dataframe(
+                ex_df, "title", claude, "exhibitions",
+                save_path=ex_path, save_every=50,
+            )
+            ex_df.to_excel(ex_path, index=False)
+            print(f"   Saved {ex_path}")
+        else:
+            print("\n[Phase 2] ANTHROPIC_API_KEY not set; skipping 'need' field.")
+    except Exception as e:
+        print(f"\n[Phase 2] Need step failed: {e} (skipping)")
 
-# Append trending data to exhibitions
-if imdb_records or nielsen_records:
-    print("\n" + "="*60)
-    print("APPENDING TRENDING DATA TO EXHIBITIONS")
-    print("="*60)
-    from add_trending_data import append_to_exhibitions, regenerate_embeddings_for_all
-    
-    all_trending_records = imdb_records + nielsen_records
-    updated_df = append_to_exhibitions(all_trending_records)
-    
-    # Regenerate embeddings for all
-    regenerate_embeddings_for_all(updated_df, exhibition_agent)
-    exhibitions_df = updated_df
+    # Step 3: Generate embeddings via OpenAI for the entire file
+    try:
+        if get_openai_api_key():
+            print("\n" + "=" * 60)
+            print("GENERATING EMBEDDINGS (OpenAI)")
+            print("=" * 60)
+            from generate_exhibition_embeddings import generate_exhibition_embeddings
+            generate_exhibition_embeddings(
+                exhibitions_path=EXHIBITIONS_PATH,
+                npy_path="upcoming_exhibitions_embeddings.npy",
+                metadata_xlsx_path="upcoming_exhibitions_embeddings.xlsx",
+            )
+            print("   Saved upcoming_exhibitions_embeddings.npy and .xlsx")
+        else:
+            print("\n[Phase 2] OPENAI_API_KEY not set; skipping embeddings.")
+    except Exception as e:
+        print(f"\n[Phase 2] Embeddings step failed: {e}")
 
 print(f"\n[SUCCESS] Phase 2 complete!")
-print(f"  Total exhibition films: {len(exhibitions_df)}")
-print(f"  Saved to: upcoming_exhibitions.xlsx")
-print(f"  Embeddings saved to: upcoming_exhibitions_embeddings.xlsx and .npy")
+print(f"  Exhibition file: {EXHIBITIONS_PATH} ({len(exhibitions_df) if exhibitions_df is not None else 0} films)")
+print(f"  Embeddings: upcoming_exhibitions_embeddings.npy and .xlsx")

@@ -33,8 +33,14 @@ st.set_page_config(
 )
 
 # Weekly Phase 2: run exhibition scrape + embeddings every Monday (autonomous)
+# Set to True to re-enable; False = auto-update off for now.
+ENABLE_WEEKLY_PHASE2_AUTO = False
+
+
 def _maybe_run_weekly_phase2():
     """If today is Monday and we haven't run this week, start Phase 2 weekly in a background thread."""
+    if not ENABLE_WEEKLY_PHASE2_AUTO:
+        return
     from pathlib import Path
     import threading
 
@@ -1309,6 +1315,10 @@ elif st.session_state.current_tab == "Recommendations" or True:
                         st.markdown(response_text)
                         if result.get("territory_fallback_note"):
                             st.info(result["territory_fallback_note"])
+                        if result.get("venue_fallback_note"):
+                            st.info(result["venue_fallback_note"])
+                        if result.get("exhibition_unstructured_note"):
+                            st.info(result["exhibition_unstructured_note"])
                         if result.get("genre_fallback_note"):
                             st.info(result["genre_fallback_note"])
                         if result.get("unstructured_fallback_note"):

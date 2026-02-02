@@ -5,54 +5,54 @@
   "count": 5,
   "recommendations": [
     {
+      "title": "Buffalo '66",
+      "year": 1998,
+      "director": "Vincent Gallo",
+      "relevance_score": 0.8104919137190936,
+      "exhibition_similarity": 0.7807127482238481,
+      "query_similarity": 0.6397055539936607,
+      "matched_exhibition": "Mauvais Sang",
+      "reasoning": "\"Buffalo '66\" is a fitting recommendation based on your interest in \"Mauvais Sang.\" Both films explore themes of emotional detachment and the complexity of human connections, while their unconventional narratives emphasize character studies steeped in dysfunction and existential angst. Directed by Vincent Gallo, \"Buffalo '66\" delivers a distinctive style that resonates with the visual poetry and stylistic innovation of Leos Carax’s work.\n\nThe primary exhibition match is \"Mauvais Sang,\" sharing t"
+    },
+    {
       "title": "Vidocq",
       "year": 2001,
       "director": "Pitof",
-      "relevance_score": 0.8225876144698772,
-      "exhibition_similarity": 0.7790907299701736,
+      "relevance_score": 0.7886376310713203,
+      "exhibition_similarity": 0.7451407465716168,
       "query_similarity": 0.6579958459996047,
       "matched_exhibition": "Mauvais Sang",
-      "reasoning": "**Vidocq** is a fitting recommendation based on your interest in **Mauvais Sang**, as both films share a visually innovative aesthetic and delve into themes of obsession and emotional turmoil, set against a backdrop of crime and existential dread. **Mauvais Sang** is the primary exhibition title it aligns with, showcasing similar genre-blending elements of romance and science fiction; additionally, it resonates with films featuring complex character dynamics and visually striking storytelling. I"
+      "reasoning": "\"Vidocq\" is an excellent recommendation in response to your interest in \"Mauvais Sang\" due to its shared themes of obsession and the consequences of ambition, alongside a visually striking style that employs dynamic cinematography and a steampunk aesthetic. Both films explore existential crises and feature complex characters navigating a world filled with emotional intensity and a sense of impending doom, making them thematically and stylistically aligned.\n\nIn addition to \"Mauvais Sang,\" this fi"
     },
     {
       "title": "Dark Seduction",
       "year": 2010,
       "director": "Walter Doehner",
-      "relevance_score": 0.7449718433301065,
-      "exhibition_similarity": 0.7126868117022569,
+      "relevance_score": 0.7569116902844337,
+      "exhibition_similarity": 0.7246266586565843,
       "query_similarity": 0.6430467088371327,
       "matched_exhibition": "Mauvais Sang",
-      "reasoning": "\"Dark Seduction\" is a compelling recommendation following your interest in \"Mauvais Sang,\" as both films delve into themes of obsession, emotional detachment, and the complexities of passion. The intense, seductive atmosphere and psychological intrigue in \"Dark Seduction\" resonate well with \"Mauvais Sang,\" particularly in their exploration of romantic and existential crises. Additionally, both films showcase visually striking elements that captivate audiences seeking innovative storytelling. Thi"
+      "reasoning": "\"Dark Seduction\" is a fitting recommendation in light of \"Mauvais Sang,\" as both films explore themes of obsession, emotional emptiness, and the consequences of desire. The intense, moody atmosphere of \"Dark Seduction\" resonates with the visually striking and poignant style of Leos Carax's work, enhancing the emotional stakes through a similar focus on complex relationships and identity deception.\n\nThis film is particularly relevant for \"Mauvais Sang,\" given the shared exploration of love, desir"
     },
     {
-      "title": "Buffalo '66",
-      "year": 1998,
-      "director": "Vincent Gallo",
-      "relevance_score": 0.7462934093782244,
-      "exhibition_similarity": 0.7165142438829789,
-      "query_similarity": 0.6397055539936607,
+      "title": "Peacock",
+      "year": 2010,
+      "director": "Michael Lander",
+      "relevance_score": 0.7374565437481053,
+      "exhibition_similarity": 0.7058212147497145,
+      "query_similarity": 0.6421804386645211,
       "matched_exhibition": "Mauvais Sang",
-      "reasoning": "**Buffalo '66** is an excellent recommendation, as it aligns with the emotionally charged themes and complex character dynamics found in **Mauvais Sang**. Both films explore alienation, love, and the quest for connection against a backdrop that combines elements of romance and crime.\n\nThis film resonates particularly well with **Mauvais Sang** due to their shared focus on unconventional narratives, strong visual styles, and deep explorations of personal crises. Additionally, the tonal similariti"
-    },
-    {
-      "title": "Repo! The Genetic Opera",
-      "year": 2008,
-      "director": "Darren Lynn Bousman",
-      "relevance_score": 0.7134977867726084,
-      "exhibition_similarity": 0.6573458699171142,
-      "query_similarity": 0.6748692224739924,
-      "matched_exhibition": "Mauvais Sang",
-      "reasoning": "**Repo! The Genetic Opera** aligns well with your interest in **Mauvais Sang** due to its unique blend of innovative visual style and thematically rich storytelling, both exploring existential crises and the complexities of human relationships, albeit through a darker, more transgressive lens. This film shares relevance not only with **Mauvais Sang** but also with cult classics that challenge mainstream narratives and aesthetics, appealing to fans of experimental cinema. The film's distinct rock"
+      "reasoning": "I recommend \"Peacock\" as a compelling match for \"Mauvais Sang,\" particularly due to its exploration of complex psychological themes such as identity crisis and the impact of childhood trauma. Both films share a darkly introspective tone and a focus on character-driven narratives, with \"Peacock\" offering a unique perspective on mental illness that resonates with the emotional and existential themes presented in \"Mauvais Sang.\"\n\nThis title is especially relevant not only to \"Mauvais Sang,\" but als"
     },
     {
       "title": "My Bloody Valentine",
       "year": 2009,
       "director": "Patrick Lussier",
-      "relevance_score": 0.7198600005357163,
-      "exhibition_similarity": 0.6698019358840469,
+      "relevance_score": 0.7194797400281445,
+      "exhibition_similarity": 0.669421675376475,
       "query_similarity": 0.6667440862022259,
       "matched_exhibition": "Mauvais Sang",
-      "reasoning": "**My Bloody Valentine** (2009) is an intriguing recommendation following **Mauvais Sang**, as both films explore themes of love, trauma, and the consequences of emotional detachment, though expressed through vastly different genres. The visceral horror of *My Bloody Valentine* complements the romantic intensity and existential crises found in *Mauvais Sang*, making them suitable companion pieces for viewers interested in complex emotional narratives. \n\nAdditionally, this film resonates with audi"
+      "reasoning": "\"My Bloody Valentine\" is a compelling recommendation in response to your query about \"Mauvais Sang,\" as both films delve into themes of love, trauma, and emotional detachment, albeit through different lenses. While \"Mauvais Sang\" presents a romantic and existential narrative, \"My Bloody Valentine\" explores the darker side of love and loss within a horrific slasher framework, creating a rich thematic overlap that would resonate well with audiences seeking intense emotional experiences.\n\nIn additi"
     }
   ]
 }

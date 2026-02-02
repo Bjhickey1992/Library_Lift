@@ -164,14 +164,16 @@ def run_legacy(
 
 # ---------- Deep + gate/tie/nudge strategy ----------
 #
-# Exhibition similarity weights (all normalized to sum 1.0 inside _calculate_enhanced_similarity):
-#   - director, writer, cast, thematic, stylistic: from intent (query-driven; defaults below from QueryIntent).
-#   - emotional_tone, need: from intent.column_weights if set by user, else DEEP_* defaults.
-# Default intent weights: director 0.2, writer 0.15, cast 0.15, thematic 0.25, stylistic 0.2.
-# Default extra: emotional_tone 0.15, need 0.15.
+# "Deep" = base scoring weights of the deep data fields (in exhibition similarity) plus query gate + tie-break + nudge.
+# The deep data fields (director, writer, cast, thematic, stylistic, emotional_tone, need) do NOT have their own
+# gate/tie-break/nudge—they are only weights in the single exhibition_similarity. Only the QUERY has gate + tie-break + nudge.
 #
-# Director/writer/cast/thematic/stylistic weights come from intent (query-driven), same as legacy.
-# emotional_tone and need are included in extra_weights; weight from intent.column_weights when set by user prompt, else default below.
+# Query intent dynamically boosts and diminishes the weights used in the exhibition similarity calculation (e.g. user
+# emphasizes themes → thematic_weight boosted; user asks for female leads → cast/lead weight boosted). If a data field
+# is not modified by the query, it reverts to (or keeps) its base weight. All weights—base or query-adjusted—are then
+# normalized together for the entire exhibition similarity calculation (in _calculate_enhanced_similarity).
+# Base/default intent weights: director 0.2, writer 0.15, cast 0.15, thematic 0.25, stylistic 0.2.
+# Default extra: emotional_tone 0.15, need 0.15.
 DEEP_EMOTIONAL_TONE_WEIGHT = 0.15  # Default emotional_tone weight when user prompt does not set it.
 DEEP_NEED_WEIGHT = 0.15  # Default need (viewer desires/needs) weight when user prompt does not set it.
 
@@ -200,16 +202,15 @@ def run_deep_gate_tie_nudge(
     openai_client,
     top_n: int,
     min_exhibition_similarity: float = 0.5,
+    exclude_need: bool = False,
 ) -> List[Dict]:
     """
-    Exhibition-led ranking; query as gate + nudge + tie-breaker.
-    - Exhibition similarity uses intent weights (query-driven), same as legacy—user query
-      can dynamically increase or decrease director/writer/cast/thematic/stylistic weights.
-    - emotional_tone and need are included in extra_weights; their weights come from intent.column_weights
-      when the user prompt sets them, otherwise default to DEEP_EMOTIONAL_TONE_WEIGHT and DEEP_NEED_WEIGHT.
-    - Gate: drop library films with query_sim < QUERY_GATE_THRESHOLD.
-    - Rank by: exhibition_similarity + nudge(query_sim) where nudge is capped.
-    - Tie-break: when exhibition scores within TIE_EPSILON, order by query_sim.
+    Deep strategy: base scoring weights of deep data fields (in exhibition similarity) plus query gate + tie-break + nudge.
+    - Exhibition similarity: query intent dynamically boosts and diminishes the weights (director, writer, cast, thematic,
+      stylistic from intent; emotional_tone, need from extra_weights). Fields not modified by the query keep their base
+      weights; all weights are then normalized together for the exhibition calculation. These are weights only; no separate gate/tie-break/nudge.
+    - Query only: gate = drop library films with query_sim < QUERY_GATE_THRESHOLD; nudge = exhibition_similarity + capped
+      adjustment from query_sim; tie-break = when relevance_score within TIE_EPSILON, order by query_sim.
     """
     lib_norm = filtered_lib_embeddings / (np.linalg.norm(filtered_lib_embeddings, axis=1, keepdims=True) + 1e-8)
     ex_norm = filtered_ex_embeddings / (np.linalg.norm(filtered_ex_embeddings, axis=1, keepdims=True) + 1e-8)
@@ -234,12 +235,16 @@ def run_deep_gate_tie_nudge(
             if _is_exact_same_film(lib_row, ex_row):
                 continue
             base_sim = float(col[int(ex_i)])
-            # Exhibition similarity: use intent weights (query-driven) same as legacy; emotional_tone and need from intent or default
+            # Exhibition similarity: use intent weights (query-driven) same as legacy; emotional_tone and need from intent or default (unless exclude_need)
             deep_extra = dict(getattr(intent, "column_weights", None) or {})
-            if "emotional_tone" not in deep_extra:
-                deep_extra["emotional_tone"] = DEEP_EMOTIONAL_TONE_WEIGHT
-            if "need" not in deep_extra:
-                deep_extra["need"] = DEEP_NEED_WEIGHT
+            if exclude_need:
+                deep_extra["emotional_tone"] = 0.0
+                deep_extra["need"] = 0.0
+            else:
+                if "emotional_tone" not in deep_extra:
+                    deep_extra["emotional_tone"] = DEEP_EMOTIONAL_TONE_WEIGHT
+                if "need" not in deep_extra:
+                    deep_extra["need"] = DEEP_NEED_WEIGHT
             exhibition_similarity = matching_agent._calculate_enhanced_similarity(
                 lib_row,
                 ex_row,
@@ -369,10 +374,12 @@ def compute_ranked_matches(
     top_n: int = 5,
     min_exhibition_similarity: float = 0.5,
     strategy: str = "legacy",
+    exclude_need: bool = False,
 ) -> List[Dict]:
     """
     Compute ranked unique_matches for dynamic recommendations.
     strategy: "legacy" | "deep_gate_tie_nudge"
+    exclude_need: if True and strategy is deep, do not add need/emotional_tone to exhibition similarity (for benchmarking).
     """
     if strategy == "deep_gate_tie_nudge":
         return run_deep_gate_tie_nudge(
@@ -380,6 +387,7 @@ def compute_ranked_matches(
             filtered_lib_embeddings, filtered_ex_embeddings,
             query, intent, matching_agent, openai_client,
             top_n, min_exhibition_similarity,
+            exclude_need=exclude_need,
         )
     return run_legacy(
         lib_rows, ex_rows,

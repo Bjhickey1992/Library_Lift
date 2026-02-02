@@ -57,6 +57,12 @@ class QueryIntent:
     territory: Optional[str] = None
     # City (when user asks for a specific city, only exhibitions in that city)
     city: Optional[str] = None
+    # Venue (when user asks for a specific venue, e.g. "Film Forum", filter exhibitions by location containing this name)
+    venue: Optional[str] = None
+
+    # Film descriptor terms: when user describes elements/vibes (e.g. "bridge and lovers", "late-night European art house")
+    # without naming a film, match library on these terms in tags, keywords, overview, theme, style, emotional_tone, need.
+    film_descriptor_terms: Optional[List[str]] = None
 
     # Dynamic column filters: any library/exhibition column -> filter value (exact, list-any, or {min, max} for numeric)
     column_filters: Optional[Dict[str, Any]] = None
@@ -111,6 +117,8 @@ class QueryIntentParser:
         intent.territory = self._extract_territory(query_lower)
         # Extract city (when user asks for exhibitions in a specific city)
         intent.city = self._extract_city(query_lower)
+        # Extract venue (e.g. "Film Forum", "whatever is doing well at Film Forum")
+        intent.venue = self._extract_venue(query_lower)
 
         # Extract time period
         intent.time_period = self._extract_time_period(query_lower)
@@ -240,8 +248,12 @@ class QueryIntentParser:
                 intent.territory = previous_intent.territory
             if not intent.city:
                 intent.city = previous_intent.city
+            if not intent.venue:
+                intent.venue = previous_intent.venue
             if not intent.match_to_specific_film:
                 intent.match_to_specific_film = previous_intent.match_to_specific_film
+            if not intent.film_descriptor_terms:
+                intent.film_descriptor_terms = previous_intent.film_descriptor_terms
 
             # Lists of entities (names) — carry forward if not set this turn
             if not intent.specific_directors:
@@ -272,6 +284,14 @@ class QueryIntentParser:
                 intent.cast_weight = previous_intent.cast_weight
                 intent.thematic_weight = previous_intent.thematic_weight
                 intent.stylistic_weight = previous_intent.stylistic_weight
+
+        # Normalize: never treat pronouns or time phrases as film title or venue
+        _pronoun_or_time = ("it", "that", "this", "this month", "that month", "this week", "that week")
+        if intent.match_to_specific_film and intent.match_to_specific_film.strip().lower() in _pronoun_or_time:
+            intent.match_to_specific_film = None
+        if intent.venue and intent.venue.strip().lower() in _pronoun_or_time:
+            # Restore venue from regex (e.g. "Film Forum" from "at Film Forum this month")
+            intent.venue = self._extract_venue(query_lower)
 
         # Clamp year range to sane values (avoid LLM/carry-forward producing 2800, etc.)
         max_year = datetime.now().year + 2
@@ -472,6 +492,24 @@ Return JSON with:
         for pattern, canonical in city_patterns:
             if re.search(pattern, query_lower):
                 return canonical
+        return None
+
+    def _extract_venue(self, query_lower: str) -> Optional[str]:
+        """Extract venue name when user asks for exhibitions at a specific venue (e.g. 'Film Forum', 'at the Ritz').
+        Returns the venue name as it might appear in exhibition location strings."""
+        # "at Film Forum", "at the Film Forum", "doing well at Film Forum", "whatever is doing well at X this month"
+        at_venue = re.search(r"(?:doing\s+well\s+)?at\s+(?:the\s+)?([a-z0-9\s]+?)(?:\s+this\s+month|\s+this\s+week|,|\?|$)", query_lower)
+        if at_venue:
+            name = at_venue.group(1).strip()
+            # Drop trailing filler
+            name = re.sub(r"\s+(month|week|year|now)$", "", name, flags=re.IGNORECASE).strip()
+            if len(name) >= 2 and name not in ("the", "a", "us", "uk"):
+                return name.title()
+        # Known venues (case-insensitive match)
+        known = ["film forum", "riff", "metrograph", "bam", "alamo", "landmark", "angelika"]
+        for v in known:
+            if v in query_lower:
+                return v.title() if v != "bam" else "BAM"
         return None
 
     def _extract_time_period(self, query_lower: str) -> Optional[str]:
@@ -692,7 +730,9 @@ Return JSON with:
             m = re.search(pattern, query_lower, re.IGNORECASE)
             if m:
                 title = clean(m.group(1))
-                if len(title) > 1 and title not in ("the", "a", "an") and not looks_like_date_phrase(title):
+                if (len(title) > 1 and title.lower() not in ("the", "a", "an", "it", "that", "this")
+                        and not looks_like_date_phrase(title)
+                        and not self._looks_like_film_elements_not_title(title)):
                     return title
 
         # "Due to / because of / given the success of X" etc. Capture film title until , . or end.
@@ -708,7 +748,10 @@ Return JSON with:
             m = re.search(pattern, query_lower, re.IGNORECASE)
             if m:
                 title = clean(m.group(1))
-                if len(title) > 1 and title not in ("the", "a", "an") and not looks_like_date_phrase(title):
+                if (len(title) > 1 and title.lower() not in ("the", "a", "an", "it", "that", "this")
+                        and not looks_like_date_phrase(title)):
+                    if self._looks_like_film_elements_not_title(title):
+                        continue  # try next pattern
                     return title
 
         # Explicit match patterns: "relevant to X", "similar to X", "like X"
@@ -724,10 +767,30 @@ Return JSON with:
             m = re.search(pattern, query_lower, re.IGNORECASE)
             if m:
                 title = clean(m.group(1))
-                if len(title) > 1 and title not in ("the", "a", "an") and not looks_like_date_phrase(title):
+                if (len(title) > 1 and title.lower() not in ("the", "a", "an", "it", "that", "this")
+                        and not looks_like_date_phrase(title)):
+                    if self._looks_like_film_elements_not_title(title):
+                        return None  # e.g. "the bridge and the lovers" -> use film_descriptor_terms instead
                     return title
 
         return None
+
+    def _looks_like_film_elements_not_title(self, phrase: str) -> bool:
+        """True if phrase looks like described elements/vibes (bridge, lovers) rather than a film title."""
+        if not phrase or len(phrase) < 3:
+            return False
+        pl = phrase.lower()
+        # "the X and the Y" or "X and the Y" -> often elements, not a title
+        if re.search(r"\b(and\s+the|and\s+a\s+)\w+", pl):
+            # Common element words that are rarely a film title by themselves
+            element_cues = ("bridge", "lovers", "love", "road", "house", "night", "day", "man", "woman", "boy", "girl", "dog", "car", "train")
+            words = set(re.findall(r"[a-z]+", pl))
+            if any(c in words for c in element_cues) and not re.search(r"\b(the\s+)?[a-z]+\s+[a-z]+\s+[a-z]+", pl):
+                return True
+        # Vibe phrases: "late-night European art house", "slow cinema"
+        if any(x in pl for x in ("art house", "art-house", "european art", "slow cinema", "late-night", "feel like")):
+            return True
+        return False
 
     def _normalize_film_title_for_matching(self, raw_title: Optional[str]) -> Optional[str]:
         """Normalize extracted film phrase to a short, searchable form for catalog/exhibition matching.
@@ -857,7 +920,7 @@ CRITICAL RULES:
    - "something like Bone Temple (the sequel)" or "that Bone Temple thing" -> "Bone Temple"
    Use null ONLY if no specific film is mentioned.
 
-2. year_start, year_end: Extract from meaning. Examples:
+3. year_start, year_end: Extract from meaning. Examples:
    - "between 1970 - 1999", "1970-1999", "from 1970 to 1999" -> year_start: 1970, year_end: 1999
    - "80s films", "from the 80s" -> year_start: 1980, year_end: 1989
    - "older titles", "older films" -> year_end: 2000 or 2010 (infer); year_start: null unless stated
@@ -865,11 +928,13 @@ CRITICAL RULES:
 
 3. genres: Infer from context. Include the canonical genre whenever the user mentions a genre in possessive or plural form: "sci-fi's", "sci-fis", "thrillers", "comedies", "horrors", etc. mean films with that genre. Use canonical names: sci-fi, thriller, comedy, horror, drama, action, romance, fantasy, crime, mystery, western, war, documentary, animation, musical.
 
-4. director_weight, writer_weight, cast_weight, thematic_weight, stylistic_weight: 0.0-1.0. Default ~0.2-0.3 each, thematic ~0.3. Bump the one the query emphasizes (e.g. director-focused -> director_weight 0.9).
+5. director_weight, writer_weight, cast_weight, thematic_weight, stylistic_weight: 0.0-1.0. Default ~0.2-0.3 each, thematic ~0.3. Bump the one the query emphasizes (e.g. director-focused -> director_weight 0.9).
 
-5. territory: Only if user explicitly mentions US, UK, FR, CA, MX.
+6. territory: Only if user explicitly mentions US, UK, FR, CA, MX.
 
-6. time_period: "month"|"week"|"now" only if user says "this month", "right now", "this week".
+7. venue: When user asks for a specific venue (e.g. "Film Forum", "whatever is doing well at Film Forum"), set to the venue name string. Otherwise null.
+
+8. time_period: "month"|"week"|"now" only if user says "this month", "right now", "this week".
 
 7. exhibition_date_start, exhibition_date_end: When the user asks for films playing on a specific date or date range (e.g. "playing on 2/14/2026", "between 2/1 and 2/14/2026"), set these to ISO date strings "YYYY-MM-DD". For a single date use the same for both. Use null if no exhibition date is mentioned.
 
@@ -889,7 +954,9 @@ Return JSON with:
 - genres (list or null): use canonical names; "(genre)'s" or "(genre)s" (e.g. sci-fi's, sci-fis, thrillers, comedies) = that genre
 - writer_gender, director_gender, lead_gender (or null)
 - specific_directors, specific_writers, specific_actors (list or null)
-- match_to_specific_film (short searchable film title only, or null; strip descriptors/filler so partial matching works)
+- match_to_specific_film (short searchable film title only, or null; use null when user describes elements/vibes and set film_descriptor_terms instead)
+- film_descriptor_terms (list or null): key terms when user describes elements/vibes (e.g. ["bridge", "lovers"], ["late-night", "european", "art house"]); null when a specific film is named
+- venue (string or null): venue name when user asks for a specific venue (e.g. "Film Forum")
 - territory (US/UK/FR/CA/MX or null; only if explicitly mentioned)
 - time_period ("month"|"week"|"now" or null)
 - exhibition_date_start, exhibition_date_end (ISO "YYYY-MM-DD" or null; when user says "playing on 2/14/2026" or "between 2/1 and 2/14/2026")
@@ -967,8 +1034,11 @@ Return ONLY valid JSON."""
             llm_film = data.get("match_to_specific_film")
             if isinstance(llm_film, str) and llm_film.strip():
                 s = llm_film.strip()
+                # Reject pronouns and time phrases that the LLM sometimes wrongly returns as film titles
+                if s.lower() in ("it", "that", "this", "this month", "that month", "this week", "that week"):
+                    base_intent.match_to_specific_film = None
                 # Do not treat date phrases as film titles (e.g. "with films playing on 2/14/2026")
-                if not re.search(r"\d{1,2}/\d{1,2}/\d{2,4}", s) and not re.search(r"20\d{2}-\d{1,2}-\d{1,2}", s) and "playing on" not in s.lower():
+                elif not re.search(r"\d{1,2}/\d{1,2}/\d{2,4}", s) and not re.search(r"20\d{2}-\d{1,2}-\d{1,2}", s) and "playing on" not in s.lower():
                     base_intent.match_to_specific_film = self._normalize_film_title_for_matching(s) or s
             # else: keep base_intent.match_to_specific_film (e.g. from regex)
             # Territory should only be applied when explicitly mentioned in the prompt.
@@ -980,6 +1050,13 @@ Return ONLY valid JSON."""
                 base_intent.column_filters = data["column_filters"]
             if "column_weights" in data and isinstance(data["column_weights"], dict) and data["column_weights"]:
                 base_intent.column_weights = {k: float(v) for k, v in data["column_weights"].items() if isinstance(v, (int, float))}
+            if "film_descriptor_terms" in data and isinstance(data["film_descriptor_terms"], list) and data["film_descriptor_terms"]:
+                base_intent.film_descriptor_terms = [str(t).strip() for t in data["film_descriptor_terms"] if t and str(t).strip()]
+            if "venue" in data and isinstance(data["venue"], str) and data["venue"].strip():
+                venue_val = data["venue"].strip()
+                # Don't let LLM overwrite with a time phrase (e.g. "this month" from "at Film Forum this month")
+                if venue_val.lower() not in ("this month", "that month", "this week", "that week", "now"):
+                    base_intent.venue = venue_val
             
         except Exception as e:
             print(f"[QueryIntentParser] Error in LLM parsing: {e}")

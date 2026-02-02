@@ -349,9 +349,12 @@ class ChatbotAgent:
                 print(f"[ChatbotAgent] Genre fallback: {len(filtered_library_df)} films match text terms (from {len(filtered_no_genre)} without genre filter)")
         unstructured_fallback_note: Optional[str] = None
         if len(filtered_library_df) == 0:
-            # Unstructured fallback: match query terms against need, overview, keywords, themes, title
-            # (e.g. "edgy art-house movies" -> terms in need/overview surface relevant titles; scoring still enforces min_exhibition_similarity >= 0.5)
-            unstructured_candidates = self._filter_library_by_unstructured_query(library_df, query)
+            # Unstructured fallback: match query terms or intent.film_descriptor_terms against need, overview, keywords, themes, emotional_tone, title
+            # (e.g. "edgy art-house movies" or "bridge and lovers" -> terms surface relevant titles; scoring still enforces min_exhibition_similarity >= 0.5)
+            descriptor_terms = getattr(intent, "film_descriptor_terms", None) or None
+            unstructured_candidates = self._filter_library_by_unstructured_query(
+                library_df, query, descriptor_terms=descriptor_terms
+            )
             if len(unstructured_candidates) > 0:
                 filtered_library_df = unstructured_candidates
                 unstructured_fallback_note = (
@@ -380,8 +383,30 @@ class ChatbotAgent:
         
         # Apply filters to exhibitions
         territory_fallback_note: Optional[str] = None
+        exhibition_unstructured_note: Optional[str] = None
+        venue_fallback_note: Optional[str] = None
         filtered_exhibitions_df = self._apply_exhibition_filters(exhibitions_df, intent)
         print(f"[ChatbotAgent] After exhibition filters: {len(filtered_exhibitions_df)} exhibitions (from {len(exhibitions_df)} total)")
+        # Unstructured fallback: when structured filters yield 0, try matching exhibitions by query terms in location/title/need/overview/keywords
+        if len(filtered_exhibitions_df) == 0:
+            unstructured_ex = self._filter_exhibitions_by_unstructured_query(exhibitions_df, query)
+            if len(unstructured_ex) > 0:
+                filtered_exhibitions_df = unstructured_ex
+                exhibition_unstructured_note = (
+                    "No exhibitions matched your filters exactly; showing exhibitions that mention your query "
+                    "(location, title, or description)."
+                )
+                print(f"[ChatbotAgent] Exhibition unstructured fallback: {len(filtered_exhibitions_df)} exhibitions")
+        # Venue fallback: if user asked for a venue and we got 0, retry without venue so they still get recommendations
+        if len(filtered_exhibitions_df) == 0 and getattr(intent, "venue", None):
+            fallback_intent = replace(intent, venue=None)
+            filtered_exhibitions_df = self._apply_exhibition_filters(exhibitions_df, fallback_intent)
+            if len(filtered_exhibitions_df) > 0:
+                venue_fallback_note = (
+                    f"No exhibitions found at {intent.venue}; showing recommendations "
+                    "based on all venues."
+                )
+                intent = fallback_intent
         # If territory was requested but no exhibitions in that territory, fall back to all exhibitions
         # so the user still gets recommendations (e.g. "thrillers to emphasize in the US" -> show thrillers)
         if len(filtered_exhibitions_df) == 0 and intent.territory:
@@ -531,6 +556,10 @@ class ChatbotAgent:
         }
         if territory_fallback_note:
             out["territory_fallback_note"] = territory_fallback_note
+        if venue_fallback_note:
+            out["venue_fallback_note"] = venue_fallback_note
+        if exhibition_unstructured_note:
+            out["exhibition_unstructured_note"] = exhibition_unstructured_note
         if genre_fallback_note:
             out["genre_fallback_note"] = genre_fallback_note
         if unstructured_fallback_note:
@@ -603,7 +632,7 @@ class ChatbotAgent:
         if not terms_clean:
             return library_df
         pattern = "|".join(re.escape(t) for t in terms_clean)
-        text_columns = ["overview", "keywords", "thematic_descriptors", "stylistic_descriptors", "need", "title"]
+        text_columns = ["overview", "keywords", "thematic_descriptors", "stylistic_descriptors", "emotional_tone", "need", "title"]
         mask = pd.Series(False, index=library_df.index)
         for col in text_columns:
             if col not in library_df.columns:
@@ -622,14 +651,39 @@ class ChatbotAgent:
     })
 
     def _filter_library_by_unstructured_query(
-        self, library_df: pd.DataFrame, query: str
+        self,
+        library_df: pd.DataFrame,
+        query: str,
+        *,
+        descriptor_terms: Optional[List[str]] = None,
     ) -> pd.DataFrame:
-        """When structured filters yield 0, match query terms (minus stopwords) against need, overview, keywords, thematic/stylistic descriptors, title. Lets vague prompts (e.g. 'edgy art-house movies') surface titles via unstructured associations in need. Scoring and min_exhibition_similarity still apply to avoid dubious matches."""
-        terms = re.findall(r"[a-z0-9]+", query.lower())
-        terms_clean = [t for t in terms if len(t) >= 2 and t not in self._UNSTRUCTURED_STOPWORDS][:15]
+        """When structured filters yield 0, match query terms (or intent film_descriptor_terms) against need, overview, keywords, thematic/stylistic/emotional_tone, title. Lets vague or element-based prompts surface titles. Scoring and min_exhibition_similarity still apply."""
+        if descriptor_terms:
+            terms_clean = [str(t).strip().lower() for t in descriptor_terms if t and len(str(t).strip()) >= 2][:15]
+        else:
+            terms = re.findall(r"[a-z0-9]+", query.lower())
+            terms_clean = [t for t in terms if len(t) >= 2 and t not in self._UNSTRUCTURED_STOPWORDS][:15]
         if not terms_clean:
             return library_df
         return self._filter_library_by_text_terms(library_df, terms_clean)
+
+    def _filter_exhibitions_by_unstructured_query(
+        self, exhibitions_df: pd.DataFrame, query: str
+    ) -> pd.DataFrame:
+        """Filter exhibitions to rows where location, title, need, overview, or keywords contain any query terms (minus stopwords). Fallback when structured exhibition filters yield 0."""
+        terms = re.findall(r"[a-z0-9]+", query.lower())
+        terms_clean = [t for t in terms if len(t) >= 2 and t not in self._UNSTRUCTURED_STOPWORDS][:15]
+        if not terms_clean:
+            return exhibitions_df
+        pattern = "|".join(re.escape(t) for t in terms_clean)
+        text_columns = ["location", "title", "need", "overview", "keywords"]
+        mask = pd.Series(False, index=exhibitions_df.index)
+        for col in text_columns:
+            if col not in exhibitions_df.columns:
+                continue
+            ser = exhibitions_df[col].astype(str).str.lower()
+            mask = mask | ser.str.contains(pattern, na=False)
+        return exhibitions_df[mask]
 
     def _apply_library_filters(self, library_df: pd.DataFrame, intent: QueryIntent) -> pd.DataFrame:
         """Apply filters to library DataFrame based on query intent."""
@@ -798,7 +852,14 @@ class ChatbotAgent:
             loc_col = filtered_df["location"].astype(str).str
             city_lower = intent.city.lower()
             filtered_df = filtered_df[loc_col.lower().str.contains(re.escape(city_lower), na=False)]
-        
+
+        # Venue filter: when user asks for a specific venue (e.g. "Film Forum"), only exhibitions at that venue
+        venue = getattr(intent, "venue", None)
+        if venue and "location" in filtered_df.columns:
+            loc_col = filtered_df["location"].astype(str).str
+            venue_lower = venue.strip().lower()
+            filtered_df = filtered_df[loc_col.lower().str.contains(re.escape(venue_lower), na=False)]
+
         # Time period filter: skip when matching to a specific film. We use all exhibitions
         # of that film; "this month" etc. is about when we promote, not when they screen.
         if intent.time_period and not intent.match_to_specific_film:
@@ -876,6 +937,13 @@ class ChatbotAgent:
                 emphasized.append(label)
         return emphasized
 
+    @staticmethod
+    def _normalize_film_titles_in_reasoning(text: str) -> str:
+        """Replace **Film Title** with \"Film Title\" so titles appear in quotes, not bold."""
+        if not text:
+            return text
+        return re.sub(r"\*\*([^*]+)\*\*", r'"\1"', text)
+
     def _generate_dynamic_reasoning(
         self,
         library_film: Dict,
@@ -932,7 +1000,7 @@ class ChatbotAgent:
         prompt += (
             "This must come first.\n\n"
             "2. THEN: Which exhibition titles it has relevance for. "
-            "Name the primary match and 1-2 others from the list if relevant; briefly say what drives the match (genres, themes, personnel, style).\n\n"
+            "Name the primary match and 1-2 others from the list if relevant; use double quotes for film titles (e.g. \"Title\"), not bold. Briefly say what drives the match (genres, themes, personnel, style).\n\n"
             "3. OPTIONALLY: One brief sentence on how it fits broader market context. "
             "Do not lead with OTT platforms (AVOD, SVOD, FAST); that context is understood."
         )
@@ -942,7 +1010,7 @@ class ChatbotAgent:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a content distribution assistant. Write a recommendation overview that (1) explains why this film matches the user's query, (2) names exhibition titles it has relevance for and why, (3) optionally notes broader market fit. Be specific and concise. Vary your phrasing and tone so each response feels distinct—avoid repeating the same sentence structures or openings. Do not preface with OTT platforms.",
+                        "content": "You are a content distribution assistant. Write a recommendation overview that (1) explains why this film matches the user's query, (2) names exhibition titles it has relevance for and why, (3) optionally notes broader market fit. Be specific and concise. Vary your phrasing and tone so each response feels distinct—avoid repeating the same sentence structures or openings. Do not preface with OTT platforms. When naming any film title, use double quotes (e.g. \"Film Title\"), never bold markdown (**Film Title**).",
                     },
                     {"role": "user", "content": prompt},
                 ],
@@ -950,7 +1018,7 @@ class ChatbotAgent:
                 temperature=0.85,
             )
             reasoning = response.choices[0].message.content.strip()
-            return reasoning
+            return self._normalize_film_titles_in_reasoning(reasoning)
         except Exception as e:
             print(f"[ChatbotAgent] Error generating dynamic reasoning: {e}")
             fallback = f"Matches your query (relevance {query_similarity:.2f}). Exhibition match: {exhibition_film.get('title', '')} (score {similarity:.2f})."
@@ -1159,18 +1227,18 @@ Return only the 2-letter country code, or "None" if no country is mentioned."""
             response = self.openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "You are a content distribution assistant helping monetize a company's content library. Explain (1) why the film is recommended from the similarity match to the exhibition film, then (2) how it fits broader market trends. Vary your phrasing so each recommendation reads distinctly. Do not preface every response with OTT platforms."},
+                    {"role": "system", "content": "You are a content distribution assistant helping monetize a company's content library. Explain (1) why the film is recommended from the similarity match to the exhibition film, then (2) how it fits broader market trends. Vary your phrasing so each recommendation reads distinctly. Do not preface every response with OTT platforms. When naming any film title, use double quotes (e.g. \"Film Title\"), never bold markdown (**Film Title**)."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=250,
                 temperature=0.85
             )
             reasoning = response.choices[0].message.content.strip()
-            return reasoning
+            return self._normalize_film_titles_in_reasoning(reasoning)
         except Exception as e:
             print(f"[ChatbotAgent] Error generating reasoning: {e}")
             return f"Recommended based on similarity score: {similarity:.3f}"
-    
+
     def _get_poster_url(self, tmdb_id: Optional[int]) -> Optional[str]:
         """Get poster image URL from TMDB."""
         if not tmdb_id or not self.tmdb_client:
@@ -1463,18 +1531,18 @@ Return only the 2-letter country code, or "None" if no country is mentioned."""
             response = self.openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "You are a content distribution assistant helping monetize a company's content library. Explain (1) why the film is recommended from its match to exhibition/trend data, then (2) how it fits broader market trends. Vary your phrasing so each recommendation reads distinctly. Do not preface every response with OTT platforms."},
+                    {"role": "system", "content": "You are a content distribution assistant helping monetize a company's content library. Explain (1) why the film is recommended from its match to exhibition/trend data, then (2) how it fits broader market trends. Vary your phrasing so each recommendation reads distinctly. Do not preface every response with OTT platforms. When naming any film title, use double quotes (e.g. \"Film Title\"), never bold markdown (**Film Title**)."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=250,
                 temperature=0.85
             )
             reasoning = response.choices[0].message.content.strip()
-            return reasoning
+            return self._normalize_film_titles_in_reasoning(reasoning)
         except Exception as e:
             print(f"[ChatbotAgent] Error generating trend reasoning: {e}")
             return "; ".join(match_reasons) if match_reasons else "Matches current trends."
-    
+
     def _is_trend_query(self, query: str) -> bool:
         """Detect if query is asking about trends vs specific recommendations."""
         if not self.openai_client:
