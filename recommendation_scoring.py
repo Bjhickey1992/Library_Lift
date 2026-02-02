@@ -268,6 +268,20 @@ def run_deep_gate_tie_nudge(
             else:
                 nudge = 0.0
             relevance_score = ex_sim + nudge
+            # Soft territory/venue: small bonus when exhibition matches preferences (so "prefer US" ranks US higher)
+            if getattr(intent, "territory_mode", "hard") == "soft" and getattr(intent, "territory_preferences", None):
+                ex_country = (ex_row.get("country") or "").strip().upper()
+                prefs = [(t or "").strip().upper() for t in (intent.territory_preferences or []) if (t or "").strip()]
+                for i, p in enumerate(prefs):
+                    if ex_country == p or (ex_country == "USA" and p == "US") or (ex_country == "GB" and p == "UK"):
+                        relevance_score += 0.05 * (1.0 - i * 0.25)
+                        break
+            if getattr(intent, "venue_mode", "hard") == "soft" and getattr(intent, "venue_preferences", None):
+                loc = (ex_row.get("location") or "").lower()
+                for i, v in enumerate(intent.venue_preferences or []):
+                    if v and (v or "").strip().lower() in loc:
+                        relevance_score += 0.05 * (1.0 - i * 0.25)
+                        break
             relevance_score = max(0.0, min(1.0, relevance_score))
             candidates_for_lib.append({
                 "exhibition_film": ex_row,

@@ -290,12 +290,31 @@ class ChatbotAgent:
         
         return recommendations
     
+    def _resolve_reference_to_last_recs(self, query: str, last_recommendations: Optional[List[Dict]]) -> str:
+        """Replace 'the second one', '#2', 'like number 2' with actual title from last_recommendations."""
+        if not last_recommendations or not isinstance(last_recommendations, list):
+            return query
+        ordinals = ("first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth")
+        q = query.strip()
+        for i, rec in enumerate(last_recommendations[:10]):
+            title = (rec.get("title") or "").strip()
+            if not title:
+                continue
+            one_based = i + 1
+            if i < len(ordinals):
+                q = re.sub(rf"\bthe\s+{ordinals[i]}\s+one\b", title, q, flags=re.IGNORECASE)
+            q = re.sub(rf"\b(?:like\s+)?(?:number|#)\s*{one_based}\b", title, q, flags=re.IGNORECASE)
+            q = re.sub(rf"\b(?:like\s+)?(?:the\s+)?#{one_based}\b", title, q, flags=re.IGNORECASE)
+        return q.strip() or query
+
     def get_dynamic_recommendations(
         self,
         query: str,
         *,
         top_n: int = 5,
-        history_prompts: Optional[List[str]] = None
+        history_prompts: Optional[List[str]] = None,
+        last_recommendations: Optional[List[Dict]] = None,
+        from_recommendation: Optional[Dict] = None,
     ) -> Dict:
         """
         Get recommendations based on dynamic query intent parsing.
@@ -309,16 +328,38 @@ class ChatbotAgent:
         Args:
             query: User query string
             top_n: Maximum number of recommendations (default: 5)
+            last_recommendations: Last N shown recs to resolve "the second one", "#2"
+            from_recommendation: Build intent from this rec (e.g. "More like this" click)
         
         Returns:
             Dictionary with recommendations and query metadata
         """
+        # Resolve references to last recommendations ("the second one" -> actual title)
+        query = self._resolve_reference_to_last_recs(query, last_recommendations)
+
         # Parse query intent
         intent = self.query_parser.parse(
             query,
             history_prompts=history_prompts,
             previous_intent=self._last_intent,
         )
+
+        # "More like this": override intent from the clicked recommendation
+        if from_recommendation and isinstance(from_recommendation, dict):
+            title = (from_recommendation.get("title") or "").strip()
+            if title:
+                intent.match_to_specific_film = title
+                # Optional: add descriptor terms from that film for richer matching
+                terms = []
+                for key in ("themes", "thematic_descriptors", "style", "stylistic_descriptors"):
+                    val = from_recommendation.get(key)
+                    if val and isinstance(val, str):
+                        terms.extend(re.findall(r"[a-z0-9]+", val.lower()))
+                if from_recommendation.get("emotional_tone"):
+                    terms.extend(re.findall(r"[a-z0-9]+", str(from_recommendation["emotional_tone"]).lower()))
+                if terms:
+                    intent.film_descriptor_terms = list(dict.fromkeys(terms))[:12]
+
         # Update last intent for future refinements
         self._last_intent = intent
         
@@ -564,6 +605,20 @@ class ChatbotAgent:
             out["genre_fallback_note"] = genre_fallback_note
         if unstructured_fallback_note:
             out["unstructured_fallback_note"] = unstructured_fallback_note
+        # Fallback transparency: one summary of what was relaxed so users can rephrase for stricter results
+        relaxed: List[str] = []
+        if genre_fallback_note:
+            relaxed.append("Genre match relaxed to plot/keywords/themes.")
+        if unstructured_fallback_note:
+            relaxed.append("Filters relaxed; matched your wording in plot, themes, or viewer needs.")
+        if territory_fallback_note:
+            relaxed.append("Territory expanded to all (no exhibitions in requested region).")
+        if venue_fallback_note:
+            relaxed.append("Venue filter removed (no exhibitions at requested venue).")
+        if exhibition_unstructured_note:
+            relaxed.append("Exhibition filter relaxed to location/title/description match.")
+        if relaxed:
+            out["fallback_summary"] = " ".join(relaxed)
         return out
     
     def _apply_column_filters_to_df(self, df: pd.DataFrame, column_filters: Optional[Dict[str, Any]]) -> pd.DataFrame:
@@ -735,6 +790,39 @@ class ChatbotAgent:
                     print(f"[ChatbotAgent] Filtered to {len(filtered_df)} films with {intent.lead_gender} leads")
             else:
                 print(f"[ChatbotAgent] Warning: 'lead_gender' column not found in library. Run enrich_with_lead_gender.py first.")
+
+        # Negative filters: exclude genres, year range, specific film, tones
+        if getattr(intent, "exclude_genres", None):
+            pattern = "|".join(re.escape(g.strip().lower()) for g in intent.exclude_genres if g)
+            if pattern:
+                genre_col = filtered_df["genres"].astype(str).str.lower()
+                filtered_df = filtered_df[~genre_col.str.contains(pattern, na=False)]
+        if getattr(intent, "exclude_year_start", None) is not None or getattr(intent, "exclude_year_end", None) is not None:
+            ex_start = getattr(intent, "exclude_year_start", None)
+            ex_end = getattr(intent, "exclude_year_end", None)
+            mask = pd.Series(False, index=filtered_df.index)
+            if ex_start is not None and ex_end is not None:
+                mask = filtered_df["release_year"].notna() & (filtered_df["release_year"] >= ex_start) & (filtered_df["release_year"] <= ex_end)
+            elif ex_start is not None:
+                mask = filtered_df["release_year"].notna() & (filtered_df["release_year"] >= ex_start)
+            elif ex_end is not None:
+                mask = filtered_df["release_year"].notna() & (filtered_df["release_year"] <= ex_end)
+            filtered_df = filtered_df[~mask]
+        if getattr(intent, "exclude_film", None):
+            ex_film = (intent.exclude_film or "").strip().lower()
+            if ex_film and "title" in filtered_df.columns:
+                # Exclude library titles that match (same film)
+                title_col = filtered_df["title"].astype(str).str.lower()
+                filtered_df = filtered_df[~title_col.str.contains(re.escape(ex_film), na=False)]
+        if getattr(intent, "exclude_tones", None):
+            pattern = "|".join(re.escape(t.strip().lower()) for t in intent.exclude_tones if t)
+            if pattern:
+                tone_mask = pd.Series(False, index=filtered_df.index)
+                for col in ("emotional_tone", "need"):
+                    if col in filtered_df.columns:
+                        ser = filtered_df[col].astype(str).str.lower()
+                        tone_mask = tone_mask | ser.str.contains(pattern, na=False)
+                filtered_df = filtered_df[~tone_mask]
         
         # Dynamic column_filters (any library column)
         if intent.column_filters:
@@ -836,29 +924,55 @@ class ChatbotAgent:
             if len(filtered_df) == 0:
                 return filtered_df
         
-        # Territory filter (normalize US/USA and UK/GB so data matches either)
-        if intent.territory and "country" in filtered_df.columns:
-            ter = intent.territory.upper()
-            country_upper = filtered_df["country"].astype(str).str.strip().str.upper()
-            mask = country_upper == ter
-            if ter == "US":
-                mask = mask | (country_upper == "USA")
-            elif ter == "UK":
-                mask = mask | (country_upper == "GB")
-            filtered_df = filtered_df[mask]
+        # Territory filter: only when mode is "hard" (soft = prefer in ranking, don't filter)
+        territory_mode = getattr(intent, "territory_mode", "hard")
+        if territory_mode == "hard" and "country" in filtered_df.columns:
+            prefs = getattr(intent, "territory_preferences", None) or ([intent.territory] if intent.territory else None)
+            if prefs:
+                country_upper = filtered_df["country"].astype(str).str.strip().str.upper()
+                mask = pd.Series(False, index=filtered_df.index)
+                for ter in prefs:
+                    t = (ter or "").upper()
+                    if not t:
+                        continue
+                    m = country_upper == t
+                    if t == "US":
+                        m = m | (country_upper == "USA")
+                    elif t == "UK":
+                        m = m | (country_upper == "GB")
+                    mask = mask | m
+                filtered_df = filtered_df[mask]
 
-        # City filter: when user asks for a specific city, only exhibitions in that city
-        if intent.city:
+        # City filter: only when city_mode is hard
+        city_mode = getattr(intent, "city_mode", "hard")
+        if city_mode == "hard" and intent.city:
             loc_col = filtered_df["location"].astype(str).str
             city_lower = intent.city.lower()
             filtered_df = filtered_df[loc_col.lower().str.contains(re.escape(city_lower), na=False)]
 
-        # Venue filter: when user asks for a specific venue (e.g. "Film Forum"), only exhibitions at that venue
+        # Venue filter: only when venue_mode is hard (soft = prefer in ranking)
+        venue_mode = getattr(intent, "venue_mode", "hard")
         venue = getattr(intent, "venue", None)
-        if venue and "location" in filtered_df.columns:
-            loc_col = filtered_df["location"].astype(str).str
-            venue_lower = venue.strip().lower()
-            filtered_df = filtered_df[loc_col.lower().str.contains(re.escape(venue_lower), na=False)]
+        venue_prefs = getattr(intent, "venue_preferences", None) or ([venue] if venue else None)
+        if venue_mode == "hard" and venue_prefs and "location" in filtered_df.columns:
+            loc_col = filtered_df["location"].astype(str).str.lower()
+            mask = pd.Series(False, index=filtered_df.index)
+            for v in venue_prefs:
+                if not v:
+                    continue
+                mask = mask | loc_col.str.contains(re.escape((v or "").strip().lower()), na=False)
+            filtered_df = filtered_df[mask]
+
+        # Structured exhibition filter: new_release, re_release, documentary
+        ex_type = getattr(intent, "exhibition_film_type", None)
+        if ex_type and "release_year" in filtered_df.columns:
+            current_year = datetime.now().year
+            if ex_type == "new_release":
+                filtered_df = filtered_df[filtered_df["release_year"].notna() & (filtered_df["release_year"] >= current_year - 3)]
+            elif ex_type == "re_release":
+                filtered_df = filtered_df[filtered_df["release_year"].notna() & (filtered_df["release_year"] <= current_year - 5)]
+            elif ex_type == "documentary" and "genres" in filtered_df.columns:
+                filtered_df = filtered_df[filtered_df["genres"].astype(str).str.lower().str.contains("documentary", na=False)]
 
         # Time period filter: skip when matching to a specific film. We use all exhibitions
         # of that film; "this month" etc. is about when we promote, not when they screen.
@@ -1598,21 +1712,23 @@ Respond with only "TREND" or "RECOMMENDATION"."""
         min_similarity: float = 0.5,
         max_similarity: float = 0.7,
         top_n: int = 5,
-        history_prompts: Optional[List[str]] = None
+        history_prompts: Optional[List[str]] = None,
+        last_recommendations: Optional[List[Dict]] = None,
+        from_recommendation: Optional[Dict] = None,
     ) -> Dict:
         """
         Parse user query and get recommendations using dynamic intent parsing.
-        
-        Now supports:
-        - Dynamic queries with intent parsing: "Show me films from the 80's that would be relevant this week"
-        - Director/writer/cast-focused queries: "Show me five films directed by the most relevant directors"
-        - Trend-based queries: "What films should we emphasize based on current trends?"
-        - Specific film matching: "Do we have any library titles relevant to The Housemaid?"
+        last_recommendations: resolve "the second one", "#2" to titles from last response.
+        from_recommendation: "More like this" — intent built from that rec's title and descriptors.
         """
-        # Use only dynamic matching (prompt-driven intent, filters, weights).
-        # Do not fall back to the old static territory/similarity approach.
         try:
-            result = self.get_dynamic_recommendations(query, top_n=top_n, history_prompts=history_prompts)
+            result = self.get_dynamic_recommendations(
+                query,
+                top_n=top_n,
+                history_prompts=history_prompts,
+                last_recommendations=last_recommendations,
+                from_recommendation=from_recommendation,
+            )
             if "error" not in result:
                 return result
             # Dynamic returned an error (e.g. no matches for filters). Return it; no static fallback.

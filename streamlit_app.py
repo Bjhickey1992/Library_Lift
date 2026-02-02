@@ -730,8 +730,9 @@ def _init_chatbot_agent(studio_name: str) -> None:
 
 def _on_library_change() -> None:
     """Handle switching between Universal/Lionsgate libraries."""
-    # Clear chat histories to avoid mixing libraries
+    # Clear chat histories and recommendation memory to avoid mixing libraries
     st.session_state.messages = []
+    st.session_state.last_recommendations = []
     if "dashboard_messages" in st.session_state:
         st.session_state.dashboard_messages = []
     _init_chatbot_agent(st.session_state.selected_studio)
@@ -1272,7 +1273,8 @@ elif st.session_state.current_tab == "Recommendations" or True:
                         min_similarity=min_sim,
                         max_similarity=max_sim,
                         top_n=top_n_use,
-                        history_prompts=history_prompts
+                        history_prompts=history_prompts,
+                        last_recommendations=st.session_state.get("last_recommendations") or [],
                     )
                     
                     if "error" in result:
@@ -1380,7 +1382,32 @@ elif st.session_state.current_tab == "Recommendations" or True:
                                                 f'<p class="reasoning-text">{r_esc}</p></div>',
                                                 unsafe_allow_html=True
                                             )
+                                        # "More like this" button: run follow-up with from_recommendation
+                                        if st.button("More like this", key=f"more_like_{i}_{rec.get('title', '')}_{id(rec)}"):
+                                            more_query = f"More like {rec.get('title', '')}"
+                                            st.session_state.messages.append({"role": "user", "content": more_query})
+                                            more_result = st.session_state.chatbot_agent.get_recommendations_for_query(
+                                                more_query,
+                                                top_n=top_n_use,
+                                                history_prompts=history_prompts + [prompt],
+                                                last_recommendations=recommendations,
+                                                from_recommendation=rec,
+                                            )
+                                            more_recs = more_result.get("recommendations", []) if "error" not in more_result else []
+                                            st.session_state.last_recommendations = more_recs[:10]
+                                            intro = _recommendations_intro(len(more_recs), more_result.get("territory", "Unknown"), more_result.get("query_type", "similarity"), None)
+                                            st.session_state.messages.append({
+                                                "role": "assistant",
+                                                "content": intro,
+                                                "recommendations": more_recs,
+                                                "query_type": more_result.get("query_type", "similarity"),
+                                            })
+                                            st.rerun()
                                     st.markdown("---")
+                        
+                        # Keep short memory of last recommendations for "the second one", "#2"
+                        if recommendations:
+                            st.session_state.last_recommendations = recommendations[:10]
                     
                     st.session_state.messages.append({
                         "role": "assistant",

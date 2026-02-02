@@ -64,6 +64,27 @@ class QueryIntent:
     # without naming a film, match library on these terms in tags, keywords, overview, theme, style, emotional_tone, need.
     film_descriptor_terms: Optional[List[str]] = None
 
+    # Negative filters: "I don't want X" — shrink library and/or down-rank in scoring
+    exclude_genres: Optional[List[str]] = None
+    exclude_year_start: Optional[int] = None
+    exclude_year_end: Optional[int] = None
+    exclude_film: Optional[str] = None  # "nothing like [film]"
+    exclude_tones: Optional[List[str]] = None  # e.g. ["comedy", "light"] to avoid
+
+    # Territory/venue: hard = filter to only these; soft = prefer but show others (rank higher)
+    territory_mode: str = "hard"  # "hard" | "soft"
+    venue_mode: str = "hard"
+    city_mode: str = "hard"
+    territory_preferences: Optional[List[str]] = None  # [US, UK] = prefer US then UK when soft
+    venue_preferences: Optional[List[str]] = None
+    city_preferences: Optional[List[str]] = None
+
+    # Structured exhibition filter: only exhibitions of this type
+    exhibition_film_type: Optional[str] = None  # "new_release" | "re_release" | "documentary" | null
+
+    # Refinement: explicit "narrow to X", "add Y", "drop Z" for predictable incremental updates
+    refinement_action: Optional[Dict[str, Any]] = None  # e.g. {"action": "narrow", "target": "80s"}
+
     # Dynamic column filters: any library/exhibition column -> filter value (exact, list-any, or {min, max} for numeric)
     column_filters: Optional[Dict[str, Any]] = None
     # Dynamic column weights for match boosting: column name -> weight 0.0-1.0 (used in similarity calculation)
@@ -133,6 +154,9 @@ class QueryIntentParser:
         intent.year_end = year_end
         intent.decades = decades
         
+        # Refinement cues: "narrow to the 80s", "add UK", "drop the romance filter"
+        intent.refinement_action = self._extract_refinement_action(query_lower)
+
         # Extract genre filters
         intent.genres = self._extract_genres(query_lower)
         
@@ -254,6 +278,22 @@ class QueryIntentParser:
                 intent.match_to_specific_film = previous_intent.match_to_specific_film
             if not intent.film_descriptor_terms:
                 intent.film_descriptor_terms = previous_intent.film_descriptor_terms
+            if not intent.exclude_genres:
+                intent.exclude_genres = previous_intent.exclude_genres
+            if intent.exclude_year_start is None:
+                intent.exclude_year_start = previous_intent.exclude_year_start
+            if intent.exclude_year_end is None:
+                intent.exclude_year_end = previous_intent.exclude_year_end
+            if not intent.exclude_film:
+                intent.exclude_film = previous_intent.exclude_film
+            if not intent.exclude_tones:
+                intent.exclude_tones = previous_intent.exclude_tones
+            if not getattr(intent, "territory_preferences", None) and getattr(previous_intent, "territory_preferences", None):
+                intent.territory_preferences = previous_intent.territory_preferences
+            if not getattr(intent, "venue_preferences", None) and getattr(previous_intent, "venue_preferences", None):
+                intent.venue_preferences = previous_intent.venue_preferences
+            if not getattr(intent, "exhibition_film_type", None) and getattr(previous_intent, "exhibition_film_type", None):
+                intent.exhibition_film_type = previous_intent.exhibition_film_type
 
             # Lists of entities (names) — carry forward if not set this turn
             if not intent.specific_directors:
@@ -284,6 +324,9 @@ class QueryIntentParser:
                 intent.cast_weight = previous_intent.cast_weight
                 intent.thematic_weight = previous_intent.thematic_weight
                 intent.stylistic_weight = previous_intent.stylistic_weight
+
+        # Apply refinement_action to intent (incremental updates: narrow, add, drop)
+        self._apply_refinement_action(intent, query_lower, previous_intent)
 
         # Normalize: never treat pronouns or time phrases as film title or venue
         _pronoun_or_time = ("it", "that", "this", "this month", "that month", "this week", "that week")
@@ -511,6 +554,97 @@ Return JSON with:
             if v in query_lower:
                 return v.title() if v != "bam" else "BAM"
         return None
+
+    def _extract_refinement_action(self, query_lower: str) -> Optional[Dict[str, Any]]:
+        """Detect explicit 'narrow to X', 'add Y', 'drop Z' for incremental intent updates."""
+        q = query_lower.strip()
+        # "narrow to the 80s", "narrow to 80s", "narrow to US"
+        m = re.search(r"narrow\s+to\s+(?:the\s+)?([a-z0-9\s\-]+?)(?:\s+only)?(?:\s*filter)?\s*$", q)
+        if m:
+            target = m.group(1).strip()
+            if target:
+                return {"action": "narrow", "target": target}
+        # "add UK", "add Film Forum", "also UK"
+        m = re.search(r"(?:add|also)\s+([a-z0-9\s\-]+?)\s*$", q)
+        if m:
+            target = m.group(1).strip()
+            if target and len(target) >= 2:
+                return {"action": "add", "target": target}
+        # "drop the romance filter", "drop romance", "remove comedy", "no horror"
+        m = re.search(r"(?:drop|remove|no)\s+(?:the\s+)?([a-z\s\-]+?)(?:\s*filter)?\s*$", q)
+        if m:
+            target = m.group(1).strip()
+            if target:
+                return {"action": "drop", "target": target}
+        m = re.search(r"broaden\s+(?:to\s+)?([a-z0-9\s\-]+?)\s*$", q)
+        if m:
+            target = m.group(1).strip()
+            if target:
+                return {"action": "broaden", "target": target}
+        return None
+
+    def _apply_refinement_action(
+        self, intent: QueryIntent, query_lower: str, previous_intent: Optional["QueryIntent"]
+    ) -> None:
+        """Apply refinement_action to intent (narrow/add/drop) using previous_intent when refining."""
+        ra = getattr(intent, "refinement_action", None)
+        if not ra or not isinstance(ra, dict):
+            return
+        action = (ra.get("action") or "").strip().lower()
+        target = (ra.get("target") or "").strip().lower()
+        if not target:
+            return
+        if action == "drop":
+            # Target is likely a genre: add to exclude_genres
+            if not intent.exclude_genres:
+                intent.exclude_genres = []
+            if target not in intent.exclude_genres:
+                intent.exclude_genres.append(target)
+            # If it was in genres, remove it
+            if intent.genres and target in [g.lower() for g in intent.genres]:
+                intent.genres = [g for g in intent.genres if g.lower() != target]
+        elif action == "narrow":
+            # Target can be decade (80s), territory (US), or year range
+            if re.match(r"^\d{2}s$", target) or re.match(r"^\d0s$", target):
+                decade_num = int(target.replace("s", ""))
+                start = 1900 + decade_num if decade_num >= 50 else 2000 + decade_num
+                intent.year_start = start
+                intent.year_end = start + 9
+                intent.decades = [target]
+            elif target in ("us", "uk", "fr", "ca", "mx"):
+                intent.territory = target.upper()
+            elif target in ("portland", "berlin", "london", "new york", "la", "los angeles"):
+                intent.city = target.title() if target != "la" else "Los Angeles"
+        elif action == "add":
+            # Add territory or venue to preferences (combined intent)
+            if target in ("us", "uk", "fr", "ca", "mx"):
+                pref = getattr(intent, "territory_preferences", None) or []
+                if not isinstance(pref, list):
+                    pref = [intent.territory] if intent.territory else []
+                if target.upper() not in [p.upper() for p in pref]:
+                    pref.append(target.upper())
+                intent.territory_preferences = pref
+                if not intent.territory:
+                    intent.territory = target.upper()
+            else:
+                # Venue or city
+                pref = getattr(intent, "venue_preferences", None) or []
+                if not isinstance(pref, list):
+                    pref = [intent.venue] if intent.venue else []
+                if target.title() not in pref:
+                    pref.append(target.title())
+                intent.venue_preferences = pref
+                if not intent.venue:
+                    intent.venue = target.title()
+        elif action == "broaden":
+            # Clear a filter (e.g. broaden to all territories)
+            if "territory" in target or target in ("us", "uk", "all"):
+                intent.territory = None
+                intent.territory_preferences = None
+            if "venue" in target or "city" in target:
+                intent.venue = None
+                intent.city = None
+                intent.venue_preferences = None
 
     def _extract_time_period(self, query_lower: str) -> Optional[str]:
         """Extract time period context."""
@@ -938,6 +1072,16 @@ CRITICAL RULES:
 
 7. exhibition_date_start, exhibition_date_end: When the user asks for films playing on a specific date or date range (e.g. "playing on 2/14/2026", "between 2/1 and 2/14/2026"), set these to ISO date strings "YYYY-MM-DD". For a single date use the same for both. Use null if no exhibition date is mentioned.
 
+8. NEGATIVE FILTERS (exclude): When the user says they don't want something, set:
+   - exclude_genres: list of genres to exclude (e.g. "no comedy" -> ["comedy"], "nothing romantic" -> ["romance"])
+   - exclude_film: one film title to exclude or "nothing like [film]" (short title only)
+   - exclude_year_start, exclude_year_end: year range to exclude (e.g. "not from the 90s" -> 1990, 1999)
+   - exclude_tones: list of tone words to avoid (e.g. ["comedy", "light"])
+
+9. TERRITORY/VENUE MODE: When the user wants to "prioritize" or "prefer" a place but still see others, set territory_mode or venue_mode to "soft". When they want only that place, use "hard". When multiple places are mentioned (e.g. "US and Film Forum"), set territory_preferences or venue_preferences as a list (first = most preferred).
+
+10. exhibition_film_type: When the user asks for only "re-releases", "new releases", or "documentaries" in exhibition, set to "re_release", "new_release", or "documentary". Otherwise null.
+
 Return ONLY valid JSON. No markdown, no explanation."""
 
         history_block = ""
@@ -962,6 +1106,13 @@ Return JSON with:
 - exhibition_date_start, exhibition_date_end (ISO "YYYY-MM-DD" or null; when user says "playing on 2/14/2026" or "between 2/1 and 2/14/2026")
 - column_filters (object or null): optional filters on ANY library/exhibition column. Infer from context even if phrased loosely. Keys = column names (e.g. release_year, genres, director, lead_gender). Values: string/number (exact or substring), list of strings (match any), or {{"min": n, "max": n}} for numeric range.
 - column_weights (object or null): optional boost weights for match calculation. Infer when user emphasizes something (e.g. "really care about genre"). Keys = column names (e.g. genres, release_year). Values: 0.0-1.0.
+- exclude_genres (list or null): genres to exclude (e.g. ["comedy"] for "no comedy")
+- exclude_film (string or null): one film to exclude / "nothing like [title]"
+- exclude_year_start, exclude_year_end (int or null): year range to exclude
+- exclude_tones (list or null): tone words to avoid
+- territory_mode, venue_mode ("hard" or "soft"): hard = only that place; soft = prefer but show others
+- territory_preferences, venue_preferences (list or null): when multiple places, ordered by preference
+- exhibition_film_type ("new_release"|"re_release"|"documentary" or null): only exhibitions of this type
 
 {history_block}
 Query: {query}
@@ -1057,6 +1208,32 @@ Return ONLY valid JSON."""
                 # Don't let LLM overwrite with a time phrase (e.g. "this month" from "at Film Forum this month")
                 if venue_val.lower() not in ("this month", "that month", "this week", "that week", "now"):
                     base_intent.venue = venue_val
+            if "exclude_genres" in data and isinstance(data["exclude_genres"], list):
+                base_intent.exclude_genres = [str(g).strip().lower() for g in data["exclude_genres"] if g and str(g).strip()]
+            if "exclude_film" in data and isinstance(data["exclude_film"], str) and data["exclude_film"].strip():
+                base_intent.exclude_film = self._normalize_film_title_for_matching(data["exclude_film"].strip()) or data["exclude_film"].strip()
+            if "exclude_year_start" in data and data["exclude_year_start"] is not None:
+                try:
+                    base_intent.exclude_year_start = int(data["exclude_year_start"])
+                except (TypeError, ValueError):
+                    pass
+            if "exclude_year_end" in data and data["exclude_year_end"] is not None:
+                try:
+                    base_intent.exclude_year_end = int(data["exclude_year_end"])
+                except (TypeError, ValueError):
+                    pass
+            if "exclude_tones" in data and isinstance(data["exclude_tones"], list):
+                base_intent.exclude_tones = [str(t).strip().lower() for t in data["exclude_tones"] if t and str(t).strip()]
+            if "territory_mode" in data and isinstance(data["territory_mode"], str) and data["territory_mode"].strip().lower() in ("hard", "soft"):
+                base_intent.territory_mode = data["territory_mode"].strip().lower()
+            if "venue_mode" in data and isinstance(data["venue_mode"], str) and data["venue_mode"].strip().lower() in ("hard", "soft"):
+                base_intent.venue_mode = data["venue_mode"].strip().lower()
+            if "territory_preferences" in data and isinstance(data["territory_preferences"], list) and data["territory_preferences"]:
+                base_intent.territory_preferences = [str(t).strip().upper() for t in data["territory_preferences"] if t and str(t).strip()]
+            if "venue_preferences" in data and isinstance(data["venue_preferences"], list) and data["venue_preferences"]:
+                base_intent.venue_preferences = [str(v).strip() for v in data["venue_preferences"] if v and str(v).strip()]
+            if "exhibition_film_type" in data and isinstance(data["exhibition_film_type"], str) and data["exhibition_film_type"].strip().lower() in ("new_release", "re_release", "documentary"):
+                base_intent.exhibition_film_type = data["exhibition_film_type"].strip().lower()
             
         except Exception as e:
             print(f"[QueryIntentParser] Error in LLM parsing: {e}")
