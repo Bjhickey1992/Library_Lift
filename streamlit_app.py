@@ -685,6 +685,13 @@ st.markdown("""
         color: var(--text-primary);
         flex: 1;
         min-height: 2.5rem !important;
+        cursor: text !important;
+    }
+    [data-testid="stChatInput"] > div {
+        cursor: text !important;
+    }
+    [data-testid="stChatInput"] > div button {
+        cursor: pointer !important;
     }
     /* Remove any border from textarea and its wrapper so no line around the type area */
     [data-testid="stChatInput"] textarea,
