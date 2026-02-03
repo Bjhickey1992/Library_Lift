@@ -686,6 +686,7 @@ st.markdown("""
         flex: 1;
         min-height: 2.5rem !important;
         cursor: text !important;
+        caret-color: var(--primary) !important;
     }
     [data-testid="stChatInput"] > div {
         cursor: text !important;
