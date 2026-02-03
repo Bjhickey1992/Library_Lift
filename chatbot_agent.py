@@ -373,6 +373,23 @@ class ChatbotAgent:
         exhibitions_df = self._load_exhibitions()
         lib_embeddings, ex_embeddings = self._load_embeddings(required=True)
         
+        # "More like this": exhibition-first flow — find exhibitions similar to clicked film,
+        # then best library films for those exhibitions, ranked by similarity to clicked film
+        if from_recommendation and isinstance(from_recommendation, dict):
+            out = self._get_more_like_this_recommendations(
+                from_recommendation=from_recommendation,
+                library_df=library_df,
+                exhibitions_df=exhibitions_df,
+                lib_embeddings=lib_embeddings,
+                ex_embeddings=ex_embeddings,
+                intent=intent,
+                top_n=top_n,
+                query=query,
+            )
+            if out is not None:
+                return out
+            # Fall through to normal flow if we couldn't find the clicked film or had no exhibitions
+        
         # Apply filters to library
         filtered_library_df = self._apply_library_filters(library_df, intent)
         print(f"[ChatbotAgent] After library filters: {len(filtered_library_df)} films (from {len(library_df)} total)")
@@ -620,6 +637,220 @@ class ChatbotAgent:
         if relaxed:
             out["fallback_summary"] = " ".join(relaxed)
         return out
+    
+    def _get_more_like_this_recommendations(
+        self,
+        *,
+        from_recommendation: Dict,
+        library_df: pd.DataFrame,
+        exhibitions_df: pd.DataFrame,
+        lib_embeddings: np.ndarray,
+        ex_embeddings: np.ndarray,
+        intent: QueryIntent,
+        top_n: int,
+        query: str = "",
+    ) -> Optional[Dict]:
+        """
+        Exhibition-first "More like this" flow:
+        1. Find top 5 exhibitions most similar to the clicked library film
+        2. For each exhibition, find library films that match it well
+        3. Among those, select the best library film (most similar to clicked film) per exhibition
+        4. Rank by exhibition similarity to clicked film, then by library-film similarity to clicked
+        """
+        # Apply exhibition filters (territory, etc.) but NOT match_to_specific_film
+        # (we want exhibitions similar to clicked film, not exhibitions that ARE the film)
+        exhibition_intent = replace(intent, match_to_specific_film=None)
+        filtered_exhibitions_df = self._apply_exhibition_filters(exhibitions_df, exhibition_intent)
+        if len(filtered_exhibitions_df) == 0:
+            filtered_exhibitions_df = exhibitions_df  # Fallback to all exhibitions
+        if len(filtered_exhibitions_df) == 0:
+            return None
+        exhibition_indices = filtered_exhibitions_df.index.tolist()
+        filtered_ex_embeddings = ex_embeddings[exhibition_indices]
+        ex_rows = filtered_exhibitions_df.to_dict(orient="records")
+        lib_rows = library_df.to_dict(orient="records")
+        
+        # Find clicked film in library (by tmdb_id or title+year)
+        clicked_title = (from_recommendation.get("title") or "").strip()
+        clicked_year = from_recommendation.get("year") or from_recommendation.get("release_year")
+        clicked_tmdb_id = from_recommendation.get("tmdb_id")
+        clicked_lib_idx = None
+        for idx, row in enumerate(lib_rows):
+            if clicked_tmdb_id and row.get("tmdb_id") and str(row.get("tmdb_id")) == str(clicked_tmdb_id):
+                clicked_lib_idx = idx
+                break
+            if clicked_title:
+                row_title = (row.get("title") or "").strip()
+                row_year = row.get("release_year") or row.get("year")
+                if row_title.lower() == clicked_title.lower():
+                    if clicked_year is None or row_year is None or str(row_year) == str(clicked_year):
+                        clicked_lib_idx = idx
+                        break
+        if clicked_lib_idx is None:
+            print(f"[ChatbotAgent] 'More like this' film not found in library: {clicked_title}")
+            return None
+        
+        clicked_film = lib_rows[clicked_lib_idx]
+        clicked_emb = lib_embeddings[clicked_lib_idx:clicked_lib_idx + 1]
+        lib_norm = lib_embeddings / (np.linalg.norm(lib_embeddings, axis=1, keepdims=True) + 1e-8)
+        ex_norm = filtered_ex_embeddings / (np.linalg.norm(filtered_ex_embeddings, axis=1, keepdims=True) + 1e-8)
+        clicked_norm = clicked_emb / (np.linalg.norm(clicked_emb) + 1e-8)
+        
+        # Step 1: Top 5 exhibitions most similar to clicked film
+        ex_to_clicked_sim = np.dot(ex_norm, clicked_norm.T).flatten()
+        top_ex_indices = np.argsort(-ex_to_clicked_sim)[:5]
+        
+        min_exhibition_similarity = 0.5
+        base_matrix = np.dot(ex_norm, lib_norm.T)  # (ex, lib)
+        
+        seen_lib_sigs = set()
+        unique_matches: List[Dict] = []
+        
+        def _title_sig(t: str) -> str:
+            t = (t or "").lower()
+            t = re.sub(r"[^a-z0-9\s]", " ", t)
+            words = t.split()
+            if not words:
+                return ""
+            return " ".join(words[:3]) if words[0] == "the" else " ".join(words[:2])
+        
+        def _is_same_film(lib: Dict, ex: Dict) -> bool:
+            lib_id = lib.get("tmdb_id")
+            ex_id = ex.get("tmdb_id")
+            if lib_id and ex_id:
+                try:
+                    return int(lib_id) == int(ex_id)
+                except Exception:
+                    pass
+            return _title_sig(lib.get("title", "")) == _title_sig(ex.get("title", ""))
+        
+        # Cosine similarity of each library film to clicked film
+        lib_to_clicked = np.dot(lib_norm, clicked_norm.T).flatten()
+        
+        # Step 2 & 3: For each top exhibition, find best library film (most like clicked, above min match)
+        for ex_i in top_ex_indices:
+            ex_row = ex_rows[int(ex_i)]
+            lib_to_ex_sim = base_matrix[ex_i]  # similarity of each lib film to this exhibition
+            
+            # Collect candidates: lib films that match this exhibition well
+            candidates = []
+            for lib_idx in range(len(lib_rows)):
+                if lib_idx == clicked_lib_idx:
+                    continue
+                if _is_same_film(lib_rows[lib_idx], ex_row):
+                    continue
+                ex_sim = float(lib_to_ex_sim[lib_idx])
+                if ex_sim < min_exhibition_similarity:
+                    continue
+                enhanced_ex_sim = self.matching_agent._calculate_enhanced_similarity(
+                    lib_rows[lib_idx],
+                    ex_row,
+                    ex_sim,
+                    director_weight=intent.director_weight,
+                    writer_weight=intent.writer_weight,
+                    cast_weight=intent.cast_weight,
+                    thematic_weight=intent.thematic_weight,
+                    stylistic_weight=intent.stylistic_weight,
+                    extra_weights=getattr(intent, "column_weights", None),
+                )
+                if enhanced_ex_sim < min_exhibition_similarity:
+                    continue
+                film_sim = float(lib_to_clicked[lib_idx])
+                sig = _title_sig(lib_rows[lib_idx].get("title", ""))
+                if sig and sig in seen_lib_sigs:
+                    continue
+                candidates.append({
+                    "lib_idx": lib_idx,
+                    "sig": sig,
+                    "enhanced_ex_sim": enhanced_ex_sim,
+                    "film_sim": film_sim,
+                })
+            
+            # Pick best library film for this exhibition: most similar to clicked film
+            if not candidates:
+                continue
+            best = max(candidates, key=lambda c: (c["film_sim"], c["enhanced_ex_sim"]))
+            lib_idx = best["lib_idx"]
+            sig = best["sig"]
+            enhanced_ex_sim = best["enhanced_ex_sim"]
+            film_sim = best["film_sim"]
+            if sig:
+                seen_lib_sigs.add(sig)
+            relevance_score = 0.7 * film_sim + 0.3 * enhanced_ex_sim
+            unique_matches.append({
+                "library_film": lib_rows[lib_idx],
+                "exhibition_film": ex_row,
+                "relevance_score": relevance_score,
+                "exhibition_similarity": enhanced_ex_sim,
+                "query_similarity": film_sim,  # similarity to "more like this" film
+                "ex_to_clicked_sim": float(ex_to_clicked_sim[ex_i]),
+            })
+        
+        # Sort by exhibition similarity to clicked (exhibitions most like clicked first), then relevance
+        unique_matches.sort(key=lambda m: (m["ex_to_clicked_sim"], m["relevance_score"]), reverse=True)
+        matches_slice = unique_matches[:top_n]
+        
+        if not matches_slice:
+            return None
+        
+        # Build recommendations with reasoning and posters
+        recommendations = []
+        max_workers = min(10, max(2, len(matches_slice) * 2))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            reasoning_futures = [
+                executor.submit(
+                    self._generate_dynamic_reasoning,
+                    match["library_film"],
+                    match["exhibition_film"],
+                    match["exhibition_similarity"],
+                    intent,
+                    query=query,
+                    query_similarity=match["query_similarity"],
+                    exhibition_matches=[],
+                )
+                for match in matches_slice
+            ]
+            poster_futures = [
+                executor.submit(self._get_poster_url, match["library_film"].get("tmdb_id"))
+                for match in matches_slice
+            ]
+            reasonings = [f.result() for f in reasoning_futures]
+            poster_urls = [f.result() for f in poster_futures]
+        
+        for i, match in enumerate(matches_slice):
+            lib = match["library_film"]
+            ex = match["exhibition_film"]
+            recommendations.append({
+                "title": lib.get("title", ""),
+                "year": lib.get("release_year", ""),
+                "director": lib.get("director", ""),
+                "writers": lib.get("writers", ""),
+                "cast": lib.get("cast", ""),
+                "genres": lib.get("genres", ""),
+                "relevance_score": match["relevance_score"],
+                "exhibition_similarity": match["exhibition_similarity"],
+                "query_similarity": match["query_similarity"],
+                "similarity": match["relevance_score"],
+                "matched_exhibition": ex.get("title", ""),
+                "exhibition_location": ex.get("location", ""),
+                "exhibition_dates": ex.get("scheduled_dates", ""),
+                "territory": intent.territory or "All",
+                "themes": lib.get("thematic_descriptors", ""),
+                "style": lib.get("stylistic_descriptors", ""),
+                "reasoning": reasonings[i],
+                "poster_url": poster_urls[i],
+                "tmdb_id": lib.get("tmdb_id"),
+            })
+        
+        print(f"[ChatbotAgent] More like this: found {len(recommendations)} recommendations (exhibition-first flow)")
+        return {
+            "query_type": "dynamic",
+            "intent": intent,
+            "recommendations": recommendations,
+            "count": len(recommendations),
+            "territory": intent.territory,
+            "context_mode": "refinement",
+        }
     
     def _apply_column_filters_to_df(self, df: pd.DataFrame, column_filters: Optional[Dict[str, Any]]) -> pd.DataFrame:
         """
