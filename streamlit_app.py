@@ -680,10 +680,23 @@ st.markdown("""
     [data-testid="stChatInput"] textarea {
         background-color: transparent !important;
         border: none !important;
+        outline: none !important;
         box-shadow: none !important;
         color: var(--text-primary);
         flex: 1;
         min-height: 2.5rem !important;
+    }
+    /* Remove any border from textarea and its wrapper so no line around the type area */
+    [data-testid="stChatInput"] textarea,
+    [data-testid="stChatInput"] > div > div:first-child,
+    [data-testid="stChatInput"] > div > div:last-child:not(button):not([role="button"]) {
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+    }
+    [data-testid="stChatInput"] > div > div {
+        border: none !important;
+        box-shadow: none !important;
     }
     /* Send button: same style as "More like this" — light beige, dark text, no border, pill */
     [data-testid="stChatInput"] button {
