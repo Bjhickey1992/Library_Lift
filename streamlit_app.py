@@ -631,20 +631,30 @@ st.markdown("""
         gap: 1.25rem !important;
         align-items: flex-start !important;
     }
-    /* Center poster in its column; size increased 35% (270px) via width in st.image */
-    [data-testid="stChatMessage"] [data-testid="stHorizontalBlock"] > div:first-child,
-    [data-testid="stChatMessage"] [data-testid="stImage"] {
+    /* Poster column: full width of column, flex to center poster (40% larger = 280px) */
+    [data-testid="stChatMessage"] [data-testid="stHorizontalBlock"] > div:first-child {
         display: flex !important;
         justify-content: center !important;
         align-items: flex-start !important;
-        margin-right: 0.25rem;
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+    [data-testid="stChatMessage"] [data-testid="stHorizontalBlock"] > div:first-child > div {
+        display: flex !important;
+        justify-content: center !important;
+        width: 100% !important;
+    }
+    [data-testid="stChatMessage"] [data-testid="stImage"] {
+        margin: 0 auto !important;
+        display: block !important;
     }
     [data-testid="stChatMessage"] [data-testid="stImage"] img {
-        margin-left: auto;
-        margin-right: auto;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        display: block !important;
     }
     
-    /* Chat input: ONE line only — single outline around the whole input + Send; no extra lines above */
+    /* Chat input: same look as "More like this" — light beige, no border, clean flat, one unit */
     [data-testid="stChatInput"] {
         background-color: var(--ivory) !important;
         border: none !important;
@@ -655,17 +665,17 @@ st.markdown("""
     [data-testid="stChatInput"] * {
         box-shadow: none !important;
     }
-    /* Single box: one border around text area + Send only */
+    /* One box: ivory-warm like "More like this", no border, rounded pill-style */
     [data-testid="stChatInput"] > div {
         margin: 0 !important;
-        padding: 0.35rem 0.5rem 0.35rem 1rem !important;
-        border-radius: 10px !important;
-        border: 1px solid var(--ivory-border) !important;
-        background-color: var(--ivory-card) !important;
+        padding: 0.4rem 1rem 0.4rem 1.25rem !important;
+        border-radius: 999px !important;
+        border: none !important;
+        background-color: var(--ivory-warm) !important;
         box-shadow: none !important;
         display: flex !important;
         align-items: center !important;
-        gap: 0.5rem !important;
+        gap: 0.75rem !important;
     }
     [data-testid="stChatInput"] textarea {
         background-color: transparent !important;
@@ -675,22 +685,22 @@ st.markdown("""
         flex: 1;
         min-height: 2.5rem !important;
     }
-    /* Send button: right side, vertically centered; show "Send" label */
+    /* Send button: same style as "More like this" — light beige, dark text, no border, pill */
     [data-testid="stChatInput"] button {
         flex-shrink: 0;
         align-self: center;
-        background-color: var(--primary-blue) !important;
-        color: white !important;
-        border: none;
-        box-shadow: none;
-        border-radius: 8px;
-        padding: 0.5rem 1rem !important;
+        background-color: var(--ivory-warm) !important;
+        color: var(--text-primary) !important;
+        border: none !important;
+        box-shadow: none !important;
+        border-radius: 999px !important;
+        padding: 0.5rem 1.25rem !important;
         font-weight: 600;
         font-size: 0.9rem;
     }
     [data-testid="stChatInput"] button:hover {
-        background-color: #1d4ed8 !important;
-        color: white !important;
+        background-color: var(--ivory-card) !important;
+        color: var(--primary-muted) !important;
     }
     [data-testid="stChatInput"] button svg {
         display: none !important;
@@ -1252,7 +1262,7 @@ elif st.session_state.current_tab == "Recommendations" or True:
                         col1, col2 = st.columns([2, 5])
                         with col1:
                             if rec.get("poster_url"):
-                                st.image(rec["poster_url"], width=270)
+                                st.image(rec["poster_url"], width=280)
                             else:
                                 st.caption("Poster not available")
                         with col2:
@@ -1402,7 +1412,7 @@ elif st.session_state.current_tab == "Recommendations" or True:
                                     col1, col2 = st.columns([2, 5])
                                     with col1:
                                         if rec.get("poster_url"):
-                                            st.image(rec["poster_url"], width=270)
+                                            st.image(rec["poster_url"], width=280)
                                         else:
                                             st.caption("Poster not available")
                                     with col2:
