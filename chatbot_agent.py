@@ -703,9 +703,6 @@ class ChatbotAgent:
         min_exhibition_similarity = 0.5
         base_matrix = np.dot(ex_norm, lib_norm.T)  # (ex, lib)
         
-        seen_lib_sigs = set()
-        unique_matches: List[Dict] = []
-        
         def _title_sig(t: str) -> str:
             t = (t or "").lower()
             t = re.sub(r"[^a-z0-9\s]", " ", t)
@@ -713,6 +710,13 @@ class ChatbotAgent:
             if not words:
                 return ""
             return " ".join(words[:3]) if words[0] == "the" else " ".join(words[:2])
+        
+        # Exclude the clicked film from results (by index and by title sig, in case of duplicates)
+        seen_lib_sigs = set()
+        clicked_sig = _title_sig(clicked_film.get("title", ""))
+        if clicked_sig:
+            seen_lib_sigs.add(clicked_sig)
+        unique_matches: List[Dict] = []
         
         def _is_same_film(lib: Dict, ex: Dict) -> bool:
             lib_id = lib.get("tmdb_id")
@@ -724,6 +728,20 @@ class ChatbotAgent:
                     pass
             return _title_sig(lib.get("title", "")) == _title_sig(ex.get("title", ""))
         
+        def _is_clicked_film(lib_row: Dict) -> bool:
+            """True if this library row is the clicked 'more like this' film (omit from results)."""
+            if lib_row.get("tmdb_id") and clicked_film.get("tmdb_id"):
+                try:
+                    if int(lib_row["tmdb_id"]) == int(clicked_film["tmdb_id"]):
+                        return True
+                except Exception:
+                    pass
+            row_sig = _title_sig(lib_row.get("title", ""))
+            if row_sig != clicked_sig:
+                return False
+            row_year = lib_row.get("release_year") or lib_row.get("year")
+            return row_year == clicked_year or (clicked_year is None and row_year is None) or str(row_year) == str(clicked_year)
+        
         # Cosine similarity of each library film to clicked film
         lib_to_clicked = np.dot(lib_norm, clicked_norm.T).flatten()
         
@@ -732,10 +750,10 @@ class ChatbotAgent:
             ex_row = ex_rows[int(ex_i)]
             lib_to_ex_sim = base_matrix[ex_i]  # similarity of each lib film to this exhibition
             
-            # Collect candidates: lib films that match this exhibition well
+            # Collect candidates: lib films that match this exhibition well (exclude clicked film)
             candidates = []
             for lib_idx in range(len(lib_rows)):
-                if lib_idx == clicked_lib_idx:
+                if lib_idx == clicked_lib_idx or _is_clicked_film(lib_rows[lib_idx]):
                     continue
                 if _is_same_film(lib_rows[lib_idx], ex_row):
                     continue
