@@ -626,13 +626,22 @@ st.markdown("""
         padding: 1rem 0 0.5rem 0;
     }
     
-    /* Recommendation card: prevent box borders from overlapping — clear gap between poster and content */
+    /* Recommendation card: poster column centered, gap between poster and content */
     [data-testid="stChatMessage"] [data-testid="stHorizontalBlock"] {
         gap: 1.25rem !important;
         align-items: flex-start !important;
     }
+    /* Center poster in its column; size increased 35% (270px) via width in st.image */
+    [data-testid="stChatMessage"] [data-testid="stHorizontalBlock"] > div:first-child,
     [data-testid="stChatMessage"] [data-testid="stImage"] {
+        display: flex !important;
+        justify-content: center !important;
+        align-items: flex-start !important;
         margin-right: 0.25rem;
+    }
+    [data-testid="stChatMessage"] [data-testid="stImage"] img {
+        margin-left: auto;
+        margin-right: auto;
     }
     
     /* Chat input: ONE line only — single outline around the whole input + Send; no extra lines above */
@@ -721,13 +730,14 @@ st.markdown("""
         box-shadow: 0 6px 20px rgba(37,99,235,0.4);
     }
 
-    /* "Why this film is recommended" — one bordered box; "More like this" sits inside same visual unit (no extra border) */
+    /* "Why this film is recommended" — one bordered box; margin-right for separation from page edge */
     .reasoning-block {
         background: var(--ivory-warm) !important;
         border: 1px solid var(--ivory-border);
         border-radius: 8px;
         padding: 0.75rem 1rem;
         margin: 0.6rem 0 0.25rem 0 !important;
+        margin-right: 1rem !important;
     }
     .reasoning-block .reasoning-title { font-weight: 600; color: var(--text-primary); margin: 0 0 0.25rem 0; font-size: 0.9rem; }
     .reasoning-block .reasoning-text { color: var(--text-secondary); margin: 0; font-size: 0.85rem; line-height: 1.4; }
@@ -1242,7 +1252,7 @@ elif st.session_state.current_tab == "Recommendations" or True:
                         col1, col2 = st.columns([2, 5])
                         with col1:
                             if rec.get("poster_url"):
-                                st.image(rec["poster_url"], width=200)
+                                st.image(rec["poster_url"], width=270)
                             else:
                                 st.caption("Poster not available")
                         with col2:
@@ -1392,7 +1402,7 @@ elif st.session_state.current_tab == "Recommendations" or True:
                                     col1, col2 = st.columns([2, 5])
                                     with col1:
                                         if rec.get("poster_url"):
-                                            st.image(rec["poster_url"], width=200)
+                                            st.image(rec["poster_url"], width=270)
                                         else:
                                             st.caption("Poster not available")
                                     with col2:
