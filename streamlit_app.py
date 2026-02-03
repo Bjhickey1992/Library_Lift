@@ -303,9 +303,11 @@ st.markdown("""
     [data-testid="stHorizontalBlock"],
     [data-testid="stBottomBlockContainer"],
     [data-testid="stChat"],
-    [data-testid="stChatMessageContainer"],
-    [data-testid="stChatInput"] {
+    [data-testid="stChatMessageContainer"] {
         background-color: var(--ivory) !important;
+    }
+    [data-testid="stBottomBlockContainer"] {
+        border: none !important;
     }
     [data-testid="stColumn"] { background-color: var(--ivory) !important; }
     
@@ -633,26 +635,33 @@ st.markdown("""
         margin-right: 0.25rem;
     }
     
-    /* Chat input: one unified box with Send button centered on the right */
+    /* Chat input: ONE line only — single outline around the whole input + Send; no extra lines above */
     [data-testid="stChatInput"] {
         background-color: var(--ivory) !important;
-        border-top: 2px solid var(--ivory-divider) !important;
-        padding-top: 0.75rem !important;
+        border: none !important;
+        border-top: none !important;
+        padding: 0.5rem 0 0.75rem 0 !important;
     }
+    [data-testid="stChatInput"],
+    [data-testid="stChatInput"] * {
+        box-shadow: none !important;
+    }
+    /* Single box: one border around text area + Send only */
     [data-testid="stChatInput"] > div {
-        margin-top: 0.5rem;
-        margin-bottom: 0.5rem;
-        padding: 0.4rem 0.5rem 0.4rem 1rem;
-        border-radius: 10px;
-        border: 2px solid var(--ivory-border);
-        background-color: var(--ivory-card);
-        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        margin: 0 !important;
+        padding: 0.35rem 0.5rem 0.35rem 1rem !important;
+        border-radius: 10px !important;
+        border: 1px solid var(--ivory-border) !important;
+        background-color: var(--ivory-card) !important;
+        box-shadow: none !important;
         display: flex !important;
         align-items: center !important;
         gap: 0.5rem !important;
     }
     [data-testid="stChatInput"] textarea {
-        background-color: var(--ivory-card) !important;
+        background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
         color: var(--text-primary);
         flex: 1;
         min-height: 2.5rem !important;
@@ -712,22 +721,34 @@ st.markdown("""
         box-shadow: 0 6px 20px rgba(37,99,235,0.4);
     }
 
-    /* "Why this film is recommended" — darker beige; margin so borders don't overlap with poster/content */
+    /* "Why this film is recommended" — one bordered box; "More like this" sits inside same visual unit (no extra border) */
     .reasoning-block {
         background: var(--ivory-warm) !important;
-        border: 2px solid var(--ivory-border);
+        border: 1px solid var(--ivory-border);
         border-radius: 8px;
         padding: 0.75rem 1rem;
-        margin: 0.6rem 0 0.4rem 0 !important;
+        margin: 0.6rem 0 0.25rem 0 !important;
     }
     .reasoning-block .reasoning-title { font-weight: 600; color: var(--text-primary); margin: 0 0 0.25rem 0; font-size: 0.9rem; }
     .reasoning-block .reasoning-text { color: var(--text-secondary); margin: 0; font-size: 0.85rem; line-height: 1.4; }
+    /* "More like this" button: no border so it doesn't clash with reasoning block — one visual unit */
+    [data-testid="stChatMessage"] .stButton > button {
+        border: none !important;
+        background-color: var(--ivory-warm) !important;
+        box-shadow: none !important;
+        margin-top: 0.15rem !important;
+    }
+    [data-testid="stChatMessage"] .stButton > button:hover {
+        background-color: var(--ivory-card) !important;
+        border: none !important;
+        color: var(--primary-muted) !important;
+    }
     /* Tighter vertical spacing; clear separation so borders don't overlap */
     [data-testid="stChatMessage"] [data-testid="stVerticalBlock"] > div { margin-bottom: 0.2rem !important; }
     [data-testid="stChatMessage"] .stSubheader { margin-top: 0.15rem !important; margin-bottom: 0.25rem !important; }
     [data-testid="stChatMessage"] p { margin: 0.1rem 0 !important; line-height: 1.35; }
     [data-testid="stChatMessage"] .stCaption { margin-top: 0.05rem !important; margin-bottom: 0.15rem !important; }
-    [data-testid="stChatMessage"] .reasoning-block { margin-top: 0.5rem !important; margin-bottom: 0.35rem !important; padding: 0.5rem 0.75rem !important; }
+    [data-testid="stChatMessage"] .reasoning-block { margin-top: 0.5rem !important; margin-bottom: 0.25rem !important; padding: 0.5rem 0.75rem !important; }
     [data-testid="stChatMessage"] hr { margin: 0.5rem 0 !important; }
     /* Chat section — elevated so it's the main focus on open */
     .chat-section {
