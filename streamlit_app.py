@@ -291,9 +291,9 @@ st.markdown("""
     .main .block-container {
         padding-top: 1.5rem;
         padding-bottom: 2rem;
-        max-width: 900px;
-        margin-left: auto;
-        margin-right: auto;
+        max-width: 100%;
+        padding-left: 2rem;
+        padding-right: 2rem;
         background-color: var(--ivory);
     }
     
@@ -500,9 +500,16 @@ st.markdown("""
     
     .rec-thumbnail {
         width: 60px;
-        height: 80px;
+        height: 90px;
         border-radius: 4px;
         object-fit: cover;
+    }
+    
+    /* Recommendation poster: maintain 2:3 aspect ratio, prevent distortion */
+    .rec-poster-wrapper img, [data-testid="stImage"] img {
+        object-fit: contain !important;
+        aspect-ratio: 2 / 3;
+        max-height: 320px;
     }
     
     .rec-content {
@@ -1161,9 +1168,11 @@ elif st.session_state.current_tab == "Recommendations" or True:
 
     # Chat interface (messages + input) below the suggestions
     # Display chat messages
-    for message in st.session_state.messages:
+    for msg_idx, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+            # Skip intro text for recommendation responses (user asked to remove it)
+            if "recommendations" not in message or not message["recommendations"]:
+                st.markdown(message["content"])
             
             if "recommendations" in message and message["recommendations"]:
                 recs = message["recommendations"]
@@ -1184,10 +1193,10 @@ elif st.session_state.current_tab == "Recommendations" or True:
                 
                 for i, rec in enumerate(recs, 1):
                     with st.container():
-                        col1, col2 = st.columns([1, 3])
+                        col1, col2 = st.columns([2, 5])
                         with col1:
                             if rec.get("poster_url"):
-                                st.image(rec["poster_url"], width=220)
+                                st.image(rec["poster_url"], width=200)
                             else:
                                 st.caption("Poster not available")
                         with col2:
@@ -1224,6 +1233,27 @@ elif st.session_state.current_tab == "Recommendations" or True:
                                     f'<p class="reasoning-text">{r_esc}</p></div>',
                                     unsafe_allow_html=True
                                 )
+                            # "More like this" button (also in history so it stays visible)
+                            history_prompts = [m["content"] for m in st.session_state.messages[:msg_idx] if m.get("role") == "user"][-10:]
+                            if st.button("More like this", key=f"more_hist_{msg_idx}_{i}_{rec.get('title', '')}_{rec.get('year', '')}"):
+                                more_query = f"More like {rec.get('title', '')}"
+                                st.session_state.messages.append({"role": "user", "content": more_query})
+                                more_result = st.session_state.chatbot_agent.get_recommendations_for_query(
+                                    more_query,
+                                    top_n=top_n,
+                                    history_prompts=history_prompts,
+                                    last_recommendations=recs,
+                                    from_recommendation=rec,
+                                )
+                                more_recs = more_result.get("recommendations", []) if "error" not in more_result else []
+                                st.session_state.last_recommendations = more_recs[:10]
+                                st.session_state.messages.append({
+                                    "role": "assistant",
+                                    "content": "",
+                                    "recommendations": more_recs,
+                                    "query_type": more_result.get("query_type", "similarity"),
+                                })
+                                st.rerun()
                         st.markdown("---")
     
     # Chat input
@@ -1283,11 +1313,9 @@ elif st.session_state.current_tab == "Recommendations" or True:
                         territory = result.get("territory", "Unknown")
                         trends = result.get("trends") if query_type == "trend" else None
                         
-                        # Short intro only; details live in poster rows below
                         response_text = _recommendations_intro(
                             len(recommendations), territory, query_type, trends
                         )
-                        st.markdown(response_text)
                         if result.get("territory_fallback_note"):
                             st.info(result["territory_fallback_note"])
                         if result.get("venue_fallback_note"):
@@ -1315,10 +1343,10 @@ elif st.session_state.current_tab == "Recommendations" or True:
                         if recommendations:
                             for i, rec in enumerate(recommendations, 1):
                                 with st.container():
-                                    col1, col2 = st.columns([1, 3])
+                                    col1, col2 = st.columns([2, 5])
                                     with col1:
                                         if rec.get("poster_url"):
-                                            st.image(rec["poster_url"], width=220)
+                                            st.image(rec["poster_url"], width=200)
                                         else:
                                             st.caption("Poster not available")
                                     with col2:
@@ -1356,7 +1384,7 @@ elif st.session_state.current_tab == "Recommendations" or True:
                                                 unsafe_allow_html=True
                                             )
                                         # "More like this" button: run follow-up with from_recommendation
-                                        if st.button("More like this", key=f"more_like_{i}_{rec.get('title', '')}_{id(rec)}"):
+                                        if st.button("More like this", key=f"more_live_{len(st.session_state.messages)}_{i}_{rec.get('title', '')}_{rec.get('year', '')}"):
                                             more_query = f"More like {rec.get('title', '')}"
                                             st.session_state.messages.append({"role": "user", "content": more_query})
                                             more_result = st.session_state.chatbot_agent.get_recommendations_for_query(
