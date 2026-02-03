@@ -712,7 +712,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-STUDIO_OPTIONS = ["Lionsgate", "Universal Pictures"]
+DEFAULT_STUDIO = "Lionsgate"
 
 
 def _init_chatbot_agent(studio_name: str) -> None:
@@ -728,21 +728,8 @@ def _init_chatbot_agent(studio_name: str) -> None:
         st.session_state.agent_studio = studio_name
 
 
-def _on_library_change() -> None:
-    """Handle switching between Universal/Lionsgate libraries."""
-    # Clear chat histories and recommendation memory to avoid mixing libraries
-    st.session_state.messages = []
-    st.session_state.last_recommendations = []
-    if "dashboard_messages" in st.session_state:
-        st.session_state.dashboard_messages = []
-    _init_chatbot_agent(st.session_state.selected_studio)
-
-
-# Initialize session state (default: Lionsgate)
-if "selected_studio" not in st.session_state:
-    st.session_state.selected_studio = "Lionsgate"
-elif st.session_state.selected_studio not in STUDIO_OPTIONS:
-    st.session_state.selected_studio = "Lionsgate"
+# Initialize session state (Lionsgate only)
+st.session_state.selected_studio = DEFAULT_STUDIO
 
 if "agent_studio" not in st.session_state:
     st.session_state.agent_studio = None
@@ -771,18 +758,6 @@ st.markdown("""
     <p class="tagline">Recommendations for monetizing library content</p>
 </div>
 """, unsafe_allow_html=True)
-
-# Library — radio group (rebuilt to match UI, no dropdown)
-st.markdown('<p class="library-label">Library</p>', unsafe_allow_html=True)
-st.radio(
-    "Library",
-    options=STUDIO_OPTIONS,
-    key="selected_studio",
-    on_change=_on_library_change,
-    horizontal=True,
-    label_visibility="collapsed",
-)
-st.markdown("<div style='height: 0.75rem;'></div>", unsafe_allow_html=True)
 
 # Main Content – show Recommendations tab only
 if False:  # Dashboard tab removed
@@ -1156,8 +1131,6 @@ if False:  # Dashboard tab removed
 elif st.session_state.current_tab == "Recommendations" or True:
     # Sidebar: settings (default 5 recommendations; user can also ask for a number in chat)
     with st.sidebar:
-        st.caption("Library")
-        st.write(st.session_state.selected_studio)
         with st.expander("Settings", expanded=False):
             min_sim = st.slider("Min similarity", 0.0, 1.0, 0.5, 0.01)
             max_sim = st.slider("Max similarity", 0.0, 1.0, 0.7, 0.01)
