@@ -331,6 +331,13 @@ st.markdown("""
         margin-top: 0.2rem;
         letter-spacing: 0.02em;
     }
+    .purpose {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        margin-top: 0.35rem;
+        margin-bottom: 0;
+        max-width: 42rem;
+    }
     .header-meta {
         font-size: 0.7rem;
         color: var(--text-muted);
@@ -340,8 +347,13 @@ st.markdown("""
     .search-instructions {
         font-size: 0.85rem;
         color: var(--text-secondary);
-        margin-bottom: 0.75rem;
+        margin-bottom: 0.4rem;
         line-height: 1.4;
+    }
+    .search-instructions-sub {
+        font-size: 0.85rem;
+        color: var(--text-primary);
+        margin: 0.6rem 0 0.25rem 0;
     }
     
     /* Navigation tabs */
@@ -844,12 +856,13 @@ if not st.session_state.get("initialized", False):
     st.stop()
 
 
-# Header: dashboard/copyright at very top, then title and tagline
+# Header: dashboard/copyright at very top, then title, tagline, and purpose
 st.markdown("""
 <div class="header-container">
     <p class="header-meta">Library Lift · Copyright Barbara J Hickey 2026</p>
     <h1 class="logo-text">Library Lift</h1>
     <p class="tagline">Recommendations for monetizing library content</p>
+    <p class="purpose">Match your library titles to what&apos;s playing in theaters and get AI-backed recommendations.</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1234,22 +1247,25 @@ elif st.session_state.current_tab == "Recommendations" or True:
         if not os.path.exists(agent.library_embeddings_path):
             st.caption("Embeddings missing for this library. Some queries need them.")
 
-    # Chat — elevated section so it's the main focus
+    # Chat — How to use and suggested prompts
     st.markdown(
-        '<div class="chat-section"><p class="chat-section-title">Ask for recommendations</p></div>',
+        '<div class="chat-section"><p class="chat-section-title">How to use this tool</p></div>',
         unsafe_allow_html=True,
     )
     st.markdown("""
     <div class="suggestion-bullets">
-    <p class="search-instructions"><strong>New search vs refine:</strong> Start a <strong>new search</strong> by typing a fresh question or by saying &quot;new search&quot; or &quot;new query&quot;—this ignores previous filters. To <strong>refine</strong> your current results, send a follow-up in the same thread (e.g. &quot;only female leads&quot;, &quot;in the US&quot;, &quot;give me 10 titles&quot;) and the app will keep your prior filters and narrow or adjust the list.</p>
+    <p class="search-instructions"><strong>New search:</strong> Type a new question or say &quot;new search&quot; or &quot;new query&quot; to start fresh and ignore previous filters.</p>
+    <p class="search-instructions"><strong>Refine:</strong> Reply in the same thread (e.g. &quot;only in the US&quot;, &quot;give me 10 titles&quot;, &quot;female leads&quot;) to narrow or adjust the last set of results.</p>
+    <p class="search-instructions-sub"><strong>Suggested prompts</strong></p>
     <ul>
-        <li>Ask for trends or library matches. You can request a number, e.g. &quot;give me 7 titles&quot;.</li>
-        <li>What are the best films to emphasize in the US?</li>
         <li>What&apos;s trending in theaters right now?</li>
+        <li>What are the best films to emphasize in the US this month?</li>
+        <li>Give me 5 library titles that match current exhibitions.</li>
         <li>Which library titles match current trends in a specific city?</li>
-        <li>Give me 5 titles we should emphasize this month.</li>
-        <li>Refine by replying with more constraints (city, territory, number of titles, etc.).</li>
+        <li>Thrillers with strong male leads.</li>
+        <li>Recommendations for Canada based on current trends.</li>
     </ul>
+    <p class="search-instructions"><strong>Refining your prompt:</strong> Add territory (e.g. &quot;in the US&quot;), a number (&quot;give me 7 titles&quot;), genre, or follow up with &quot;more like this&quot; on a title to get similar recommendations.</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1264,83 +1280,96 @@ elif st.session_state.current_tab == "Recommendations" or True:
             if "recommendations" in message and message["recommendations"]:
                 recs = message["recommendations"]
                 query_type = message.get("query_type", "similarity")
-                
-                # Show trend information if it's a trend query
-                if query_type == "trend" and "trends" in message:
-                    trends = message["trends"]
-                    with st.expander("📈 Current Trends in Theaters", expanded=True):
-                        if trends.get("trending_genres"):
-                            st.write("**Top Genres:**")
-                            for genre in trends["trending_genres"][:5]:
-                                st.write(f"- {genre['name']}: {genre['percentage']}% ({genre['count']} films)")
-                        if trends.get("popular_films"):
-                            st.write("**Popular Films:**")
-                            for film in trends["popular_films"][:5]:
-                                st.write(f"- {film['title']} ({film['release_year']}) - Showing at {film['venue_count']} venues")
-                
-                for i, rec in enumerate(recs, 1):
-                    with st.container():
-                        col1, col2 = st.columns([2, 5])
-                        with col1:
-                            if rec.get("poster_url"):
-                                st.image(rec["poster_url"], width=280)
-                            else:
-                                st.caption("Poster not available")
-                        with col2:
-                            st.subheader(f"{i}. {rec['title']} ({rec['year']})")
-                            st.write(f"**Director:** {rec['director']}")
-                            st.write(f"**Genres:** {rec['genres']}")
-                            
-                            # Show trend score or similarity score based on query type
-                            if query_type == "trend":
-                                if rec.get("trend_score") is not None:
-                                    st.write(f"**Trend Alignment Score:** {rec['trend_score']:.3f}")
-                                if rec.get("trending_genres"):
-                                    st.write(f"**Matches Trending Genres:** {', '.join(rec['trending_genres'])}")
-                            else:
-                                score = rec.get("relevance_score", rec.get("similarity"))
-                                if score is not None:
-                                    st.write(f"**Relevance Score:** {float(score):.3f}")
-                                if rec.get("exhibition_similarity") is not None and rec.get("query_similarity") is not None:
-                                    st.caption(
-                                        f"Exhibition match: {float(rec['exhibition_similarity']):.3f} · "
-                                        f"Query match: {float(rec['query_similarity']):.3f}"
+                n_recs = len(recs)
+                is_last_and_new = (
+                    msg_idx == len(st.session_state.messages) - 1
+                    and st.session_state.get("scroll_to_first_rec")
+                )
+                if is_last_and_new:
+                    st.session_state["scroll_to_first_rec"] = False
+                with st.expander(f"▼ Response ({n_recs} recommendation{'s' if n_recs != 1 else ''})", expanded=True):
+                    if is_last_and_new:
+                        st.markdown(
+                            '<div id="first-recommendation-anchor"></div>'
+                            '<script>try{ document.getElementById("first-recommendation-anchor")?.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){}</script>',
+                            unsafe_allow_html=True
+                        )
+                    # Show trend information if it's a trend query
+                    if query_type == "trend" and "trends" in message:
+                        trends = message["trends"]
+                        with st.expander("📈 Current Trends in Theaters", expanded=True):
+                            if trends.get("trending_genres"):
+                                st.write("**Top Genres:**")
+                                for genre in trends["trending_genres"][:5]:
+                                    st.write(f"- {genre['name']}: {genre['percentage']}% ({genre['count']} films)")
+                            if trends.get("popular_films"):
+                                st.write("**Popular Films:**")
+                                for film in trends["popular_films"][:5]:
+                                    st.write(f"- {film['title']} ({film['release_year']}) - Showing at {film['venue_count']} venues")
+                    
+                    for i, rec in enumerate(recs, 1):
+                        with st.container():
+                            col1, col2 = st.columns([2, 5])
+                            with col1:
+                                if rec.get("poster_url"):
+                                    st.image(rec["poster_url"], width=280)
+                                else:
+                                    st.caption("Poster not available")
+                            with col2:
+                                st.subheader(f"{i}. {rec['title']} ({rec['year']})")
+                                st.write(f"**Director:** {rec['director']}")
+                                st.write(f"**Genres:** {rec['genres']}")
+                                
+                                # Show trend score or similarity score based on query type
+                                if query_type == "trend":
+                                    if rec.get("trend_score") is not None:
+                                        st.write(f"**Trend Alignment Score:** {rec['trend_score']:.3f}")
+                                    if rec.get("trending_genres"):
+                                        st.write(f"**Matches Trending Genres:** {', '.join(rec['trending_genres'])}")
+                                else:
+                                    score = rec.get("relevance_score", rec.get("similarity"))
+                                    if score is not None:
+                                        st.write(f"**Relevance Score:** {float(score):.3f}")
+                                    if rec.get("exhibition_similarity") is not None and rec.get("query_similarity") is not None:
+                                        st.caption(
+                                            f"Exhibition match: {float(rec['exhibition_similarity']):.3f} · "
+                                            f"Query match: {float(rec['query_similarity']):.3f}"
+                                        )
+                                    if rec.get("matched_exhibition"):
+                                        st.write(f"**Matched Exhibition:** {rec['matched_exhibition']} at {rec.get('exhibition_location', 'N/A')}")
+                                    if rec.get('exhibition_dates'):
+                                        st.write(f"**Exhibition Dates:** {rec['exhibition_dates']}")
+                                
+                                if rec.get('reasoning'):
+                                    st.markdown("---")
+                                    r_esc = html.escape(rec['reasoning']).replace('\n', '<br/>')
+                                    st.markdown(
+                                        f'<div class="reasoning-block">'
+                                        f'<p class="reasoning-title"><strong>Why this film is recommended</strong></p>'
+                                        f'<p class="reasoning-text">{r_esc}</p></div>',
+                                        unsafe_allow_html=True
                                     )
-                                if rec.get("matched_exhibition"):
-                                    st.write(f"**Matched Exhibition:** {rec['matched_exhibition']} at {rec.get('exhibition_location', 'N/A')}")
-                                if rec.get('exhibition_dates'):
-                                    st.write(f"**Exhibition Dates:** {rec['exhibition_dates']}")
-                            
-                            if rec.get('reasoning'):
-                                st.markdown("---")
-                                r_esc = html.escape(rec['reasoning']).replace('\n', '<br/>')
-                                st.markdown(
-                                    f'<div class="reasoning-block">'
-                                    f'<p class="reasoning-title"><strong>Why this film is recommended</strong></p>'
-                                    f'<p class="reasoning-text">{r_esc}</p></div>',
-                                    unsafe_allow_html=True
-                                )
-                            # "More like this" button (also in history so it stays visible)
-                            history_prompts = [m["content"] for m in st.session_state.messages[:msg_idx] if m.get("role") == "user"][-10:]
-                            if st.button("More like this", key=f"more_hist_{msg_idx}_{i}_{rec.get('title', '')}_{rec.get('year', '')}"):
-                                more_query = f"More like {rec.get('title', '')}"
-                                st.session_state.messages.append({"role": "user", "content": more_query})
-                                more_result = st.session_state.chatbot_agent.get_recommendations_for_query(
-                                    more_query,
-                                    top_n=top_n,
-                                    history_prompts=history_prompts,
-                                    last_recommendations=recs,
-                                    from_recommendation=rec,
-                                )
-                                more_recs = more_result.get("recommendations", []) if "error" not in more_result else []
-                                st.session_state.last_recommendations = more_recs[:10]
-                                st.session_state.messages.append({
-                                    "role": "assistant",
-                                    "content": "",
-                                    "recommendations": more_recs,
-                                    "query_type": more_result.get("query_type", "similarity"),
-                                })
-                                st.rerun()
+                                # "More like this" button (also in history so it stays visible)
+                                history_prompts = [m["content"] for m in st.session_state.messages[:msg_idx] if m.get("role") == "user"][-10:]
+                                if st.button("More like this", key=f"more_hist_{msg_idx}_{i}_{rec.get('title', '')}_{rec.get('year', '')}"):
+                                    more_query = f"More like {rec.get('title', '')}"
+                                    st.session_state.messages.append({"role": "user", "content": more_query})
+                                    more_result = st.session_state.chatbot_agent.get_recommendations_for_query(
+                                        more_query,
+                                        top_n=top_n,
+                                        history_prompts=history_prompts,
+                                        last_recommendations=recs,
+                                        from_recommendation=rec,
+                                    )
+                                    more_recs = more_result.get("recommendations", []) if "error" not in more_result else []
+                                    st.session_state.last_recommendations = more_recs[:10]
+                                    st.session_state.messages.append({
+                                        "role": "assistant",
+                                        "content": "",
+                                        "recommendations": more_recs,
+                                        "query_type": more_result.get("query_type", "similarity"),
+                                    })
+                                    st.rerun()
                         st.markdown("---")
     
     # Chat input
@@ -1414,86 +1443,87 @@ elif st.session_state.current_tab == "Recommendations" or True:
                         if result.get("unstructured_fallback_note"):
                             st.info(result["unstructured_fallback_note"])
                         
-                        # Trend expander (summary only; no film list)
-                        if query_type == "trend" and trends:
-                            with st.expander("📈 Current Trends in Theaters", expanded=True):
-                                if trends.get("trending_genres"):
-                                    st.write("**Top Genres:**")
-                                    for genre in trends["trending_genres"][:5]:
-                                        st.write(f"- {genre['name']}: {genre['percentage']}% ({genre['count']} films)")
-                                if trends.get("popular_films"):
-                                    st.write("**Popular Films:**")
-                                    for film in trends["popular_films"][:5]:
-                                        st.write(f"- {film['title']} ({film['release_year']}) - Showing at {film['venue_count']} venues")
-                        
-                        # One row per recommendation: poster + details only
-                        if recommendations:
-                            for i, rec in enumerate(recommendations, 1):
-                                with st.container():
-                                    col1, col2 = st.columns([2, 5])
-                                    with col1:
-                                        if rec.get("poster_url"):
-                                            st.image(rec["poster_url"], width=280)
-                                        else:
-                                            st.caption("Poster not available")
-                                    with col2:
-                                        st.subheader(f"{i}. {rec['title']} ({rec['year']})")
-                                        st.write(f"**Director:** {rec['director']}")
-                                        st.write(f"**Genres:** {rec['genres']}")
-                                        
-                                        # Show appropriate score based on query type
-                                        if query_type == "trend":
-                                            if rec.get("trend_score") is not None:
-                                                st.write(f"**Trend Alignment Score:** {rec['trend_score']:.3f}")
-                                            if rec.get("trending_genres"):
-                                                st.write(f"**Matches Trending Genres:** {', '.join(rec['trending_genres'])}")
-                                        else:
-                                            score = rec.get("relevance_score", rec.get("similarity"))
-                                            if score is not None:
-                                                st.write(f"**Relevance Score:** {float(score):.3f}")
-                                            if rec.get("exhibition_similarity") is not None and rec.get("query_similarity") is not None:
-                                                st.caption(
-                                                    f"Exhibition match: {float(rec['exhibition_similarity']):.3f} · "
-                                                    f"Query match: {float(rec['query_similarity']):.3f}"
+                        n_recs = len(recommendations)
+                        with st.expander(f"▼ Response ({n_recs} recommendation{'s' if n_recs != 1 else ''})", expanded=True):
+                            # Trend expander (summary only; no film list)
+                            if query_type == "trend" and trends:
+                                with st.expander("📈 Current Trends in Theaters", expanded=True):
+                                    if trends.get("trending_genres"):
+                                        st.write("**Top Genres:**")
+                                        for genre in trends["trending_genres"][:5]:
+                                            st.write(f"- {genre['name']}: {genre['percentage']}% ({genre['count']} films)")
+                                    if trends.get("popular_films"):
+                                        st.write("**Popular Films:**")
+                                        for film in trends["popular_films"][:5]:
+                                            st.write(f"- {film['title']} ({film['release_year']}) - Showing at {film['venue_count']} venues")
+                            
+                            # One row per recommendation: poster + details only
+                            if recommendations:
+                                for i, rec in enumerate(recommendations, 1):
+                                    with st.container():
+                                        col1, col2 = st.columns([2, 5])
+                                        with col1:
+                                            if rec.get("poster_url"):
+                                                st.image(rec["poster_url"], width=280)
+                                            else:
+                                                st.caption("Poster not available")
+                                        with col2:
+                                            st.subheader(f"{i}. {rec['title']} ({rec['year']})")
+                                            st.write(f"**Director:** {rec['director']}")
+                                            st.write(f"**Genres:** {rec['genres']}")
+                                            
+                                            if query_type == "trend":
+                                                if rec.get("trend_score") is not None:
+                                                    st.write(f"**Trend Alignment Score:** {rec['trend_score']:.3f}")
+                                                if rec.get("trending_genres"):
+                                                    st.write(f"**Matches Trending Genres:** {', '.join(rec['trending_genres'])}")
+                                            else:
+                                                score = rec.get("relevance_score", rec.get("similarity"))
+                                                if score is not None:
+                                                    st.write(f"**Relevance Score:** {float(score):.3f}")
+                                                if rec.get("exhibition_similarity") is not None and rec.get("query_similarity") is not None:
+                                                    st.caption(
+                                                        f"Exhibition match: {float(rec['exhibition_similarity']):.3f} · "
+                                                        f"Query match: {float(rec['query_similarity']):.3f}"
+                                                    )
+                                                if rec.get("matched_exhibition"):
+                                                    st.write(f"**Matched Exhibition:** {rec['matched_exhibition']} at {rec.get('exhibition_location', 'N/A')}")
+                                                if rec.get('exhibition_dates'):
+                                                    st.write(f"**Exhibition Dates:** {rec['exhibition_dates']}")
+                                            
+                                            if rec.get('reasoning'):
+                                                st.markdown("---")
+                                                r_esc = html.escape(rec['reasoning']).replace('\n', '<br/>')
+                                                st.markdown(
+                                                    f'<div class="reasoning-block">'
+                                                    f'<p class="reasoning-title"><strong>Why this film is recommended</strong></p>'
+                                                    f'<p class="reasoning-text">{r_esc}</p></div>',
+                                                    unsafe_allow_html=True
                                                 )
-                                            if rec.get("matched_exhibition"):
-                                                st.write(f"**Matched Exhibition:** {rec['matched_exhibition']} at {rec.get('exhibition_location', 'N/A')}")
-                                            if rec.get('exhibition_dates'):
-                                                st.write(f"**Exhibition Dates:** {rec['exhibition_dates']}")
-                                        
-                                        if rec.get('reasoning'):
-                                            st.markdown("---")
-                                            r_esc = html.escape(rec['reasoning']).replace('\n', '<br/>')
-                                            st.markdown(
-                                                f'<div class="reasoning-block">'
-                                                f'<p class="reasoning-title"><strong>Why this film is recommended</strong></p>'
-                                                f'<p class="reasoning-text">{r_esc}</p></div>',
-                                                unsafe_allow_html=True
-                                            )
-                                        # "More like this" button: run follow-up with from_recommendation
-                                        if st.button("More like this", key=f"more_live_{len(st.session_state.messages)}_{i}_{rec.get('title', '')}_{rec.get('year', '')}"):
-                                            more_query = f"More like {rec.get('title', '')}"
-                                            st.session_state.messages.append({"role": "user", "content": more_query})
-                                            more_result = st.session_state.chatbot_agent.get_recommendations_for_query(
-                                                more_query,
-                                                top_n=top_n_use,
-                                                history_prompts=history_prompts + [prompt],
-                                                last_recommendations=recommendations,
-                                                from_recommendation=rec,
-                                            )
-                                            more_recs = more_result.get("recommendations", []) if "error" not in more_result else []
-                                            st.session_state.last_recommendations = more_recs[:10]
-                                            intro = _recommendations_intro(len(more_recs), more_result.get("territory", "Unknown"), more_result.get("query_type", "similarity"), None)
-                                            st.session_state.messages.append({
-                                                "role": "assistant",
-                                                "content": intro,
-                                                "recommendations": more_recs,
-                                                "query_type": more_result.get("query_type", "similarity"),
-                                            })
-                                            st.rerun()
+                                            if st.button("More like this", key=f"more_live_{len(st.session_state.messages)}_{i}_{rec.get('title', '')}_{rec.get('year', '')}"):
+                                                more_query = f"More like {rec.get('title', '')}"
+                                                st.session_state.messages.append({"role": "user", "content": more_query})
+                                                more_result = st.session_state.chatbot_agent.get_recommendations_for_query(
+                                                    more_query,
+                                                    top_n=top_n_use,
+                                                    history_prompts=history_prompts + [prompt],
+                                                    last_recommendations=recommendations,
+                                                    from_recommendation=rec,
+                                                )
+                                                more_recs = more_result.get("recommendations", []) if "error" not in more_result else []
+                                                st.session_state.last_recommendations = more_recs[:10]
+                                                intro = _recommendations_intro(len(more_recs), more_result.get("territory", "Unknown"), more_result.get("query_type", "similarity"), None)
+                                                st.session_state.messages.append({
+                                                    "role": "assistant",
+                                                    "content": intro,
+                                                    "recommendations": more_recs,
+                                                    "query_type": more_result.get("query_type", "similarity"),
+                                                })
+                                                if more_recs:
+                                                    st.session_state["scroll_to_first_rec"] = True
+                                                st.rerun()
                                     st.markdown("---")
                         
-                        # Keep short memory of last recommendations for "the second one", "#2"
                         if recommendations:
                             st.session_state.last_recommendations = recommendations[:10]
                     
@@ -1504,6 +1534,8 @@ elif st.session_state.current_tab == "Recommendations" or True:
                         "query_type": query_type,
                         "trends": result.get("trends") if query_type == "trend" else None
                     })
+                    if recommendations:
+                        st.session_state["scroll_to_first_rec"] = True
                     
                 except Exception as e:
                     error_msg = f"Error: {str(e)}"
