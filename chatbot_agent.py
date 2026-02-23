@@ -8,10 +8,17 @@ import re
 import pandas as pd
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Dict, Optional, Tuple, Any
+from typing import List, Dict, Optional, Tuple, Any, Union
 from datetime import datetime, timedelta
 import json
 from pathlib import Path
+
+
+def _resolve_path(root: Union[Path, str, None], name: str) -> str:
+    """Return absolute path for name; if root is set, resolve relative to root, else use cwd-relative."""
+    if root is not None:
+        return str(Path(root).resolve() / name)
+    return name
 
 from dataclasses import replace
 from film_agent import MatchingAgent, TMDbClient
@@ -45,16 +52,20 @@ class ChatbotAgent:
     - Returns 3-5 best recommendations per territory
     """
     
-    def __init__(self, studio_name: str = "Lionsgate"):
+    def __init__(self, studio_name: str = "Lionsgate", app_root: Optional[Union[Path, str]] = None):
         self.studio_name = studio_name
         self.openai_key = get_openai_api_key()
         self.openai_client = OpenAI(api_key=self.openai_key) if OpenAI else None
         
-        # File paths
-        self.library_path = f"{studio_name.lower().replace(' ', '_')}_library.xlsx"
-        self.exhibitions_path = "upcoming_exhibitions.xlsx"
-        self.library_embeddings_path = f"{studio_name.lower().replace(' ', '_')}_library_embeddings.npy"
-        self.exhibition_embeddings_path = "upcoming_exhibitions_embeddings.npy"
+        # File paths: resolve relative to app_root when set (so paths work when cwd != app dir, e.g. Streamlit Cloud)
+        lib_name = f"{studio_name.lower().replace(' ', '_')}_library.xlsx"
+        ex_name = "upcoming_exhibitions.xlsx"
+        lib_emb_name = f"{studio_name.lower().replace(' ', '_')}_library_embeddings.npy"
+        ex_emb_name = "upcoming_exhibitions_embeddings.npy"
+        self.library_path = _resolve_path(app_root, lib_name)
+        self.exhibitions_path = _resolve_path(app_root, ex_name)
+        self.library_embeddings_path = _resolve_path(app_root, lib_emb_name)
+        self.exhibition_embeddings_path = _resolve_path(app_root, ex_emb_name)
         
         # Cache for loaded data
         self._library_df = None

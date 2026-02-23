@@ -97,18 +97,23 @@ def _maybe_run_weekly_phase2():
 _maybe_run_weekly_phase2()
 
 # Auto-generate embeddings if missing or invalid (for deployment)
+# Use app root anchored to this script so paths work when Streamlit Cloud cwd differs from app dir
 @st.cache_resource
 def check_embeddings_status():
     """Check if embeddings exist and are valid. Returns status dict."""
-    from pathlib import Path
+    lib_path = _app_root / "lionsgate_library_embeddings.npy"
+    ex_path = _app_root / "upcoming_exhibitions_embeddings.npy"
     
-    # Resolve paths relative to this script so they work regardless of Streamlit cwd
-    _root = Path(__file__).resolve().parent
-    lib_path = _root / "lionsgate_library_embeddings.npy"
-    ex_path = _root / "upcoming_exhibitions_embeddings.npy"
-    
-    lib_valid = lib_path.exists() and not np.allclose(np.load(lib_path), 0)
-    ex_valid = ex_path.exists() and not np.allclose(np.load(ex_path), 0)
+    def _valid(path: Path) -> bool:
+        if not path.exists():
+            return False
+        try:
+            arr = np.load(str(path))
+            return arr.size > 0 and not np.allclose(arr, 0)
+        except Exception:
+            return False
+    lib_valid = _valid(lib_path)
+    ex_valid = _valid(ex_path)
     
     return {
         "lib_valid": lib_valid,
@@ -828,10 +833,10 @@ st.markdown("""
 DEFAULT_STUDIO = "Lionsgate"
 
 
-def _init_chatbot_agent(studio_name: str) -> None:
+def _init_chatbot_agent(studio_name: str, app_root: Optional[Path] = None) -> None:
     """(Re)initialize the agent for the selected library/studio."""
     try:
-        st.session_state.chatbot_agent = ChatbotAgent(studio_name=studio_name)
+        st.session_state.chatbot_agent = ChatbotAgent(studio_name=studio_name, app_root=app_root)
         st.session_state.initialized = True
         st.session_state.init_error = None
         st.session_state.agent_studio = studio_name
@@ -848,7 +853,7 @@ if "agent_studio" not in st.session_state:
     st.session_state.agent_studio = None
 
 if "chatbot_agent" not in st.session_state or st.session_state.agent_studio != st.session_state.selected_studio:
-    _init_chatbot_agent(st.session_state.selected_studio)
+    _init_chatbot_agent(st.session_state.selected_studio, _app_root)
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
