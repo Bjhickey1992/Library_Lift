@@ -99,6 +99,8 @@ def fetch_html(url: str, *, session: Optional[requests.Session] = None, timeout:
 def _get_openai_client() -> Optional["OpenAI"]:
     """
     Return an OpenAI client if the library and API key are available.
+    Used only for cinema programme extraction (LLM fallback). Anthropic/Claude
+    is never used here; it is only used for 'need' field generation elsewhere.
     """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key or OpenAI is None:
@@ -152,13 +154,30 @@ def _is_event_type(t: Any) -> bool:
 
 
 def _parse_event_datetime(value: Any) -> Optional[dt.datetime]:
+    """Parse date/datetime from LLM or JSON-LD. Handles ISO and calendar dates. Does NOT treat
+    'today' or 'now playing' as a date (caller must use date_context for that, with a per-venue cap).
+    """
     if not value:
         return None
-    if isinstance(value, str):
-        try:
-            return dateparser.parse(value)
-        except (ValueError, TypeError, OverflowError):
-            return None
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    lower = value.lower()
+    # Do not treat these as valid dates — too many films get dumped with "today"
+    if lower in ("today", "now", "now playing", "currently showing"):
+        return None
+    now = dt.datetime.now()
+    if lower == "tomorrow":
+        d = now + dt.timedelta(days=1)
+        return d.replace(hour=19, minute=0, second=0, microsecond=0)
+    try:
+        parsed = dateparser.parse(value)
+        if parsed is not None:
+            return parsed
+    except (ValueError, TypeError, OverflowError):
+        pass
     return None
 
 
@@ -221,8 +240,8 @@ def scrape_programme_via_llm(
     session: Optional[requests.Session] = None,
 ) -> List[Screening]:
     """
-    Fallback scraper that asks an LLM (OpenAI) to extract film screenings
-    from the raw HTML when JSON-LD `Event` data is missing or insufficient.
+    Fallback scraper that asks an LLM (OpenAI only; never Anthropic) to extract
+    film screenings from the raw HTML when JSON-LD Event data is missing.
 
     This expects the model to return a JSON object of the form:
     {
@@ -250,33 +269,15 @@ def scrape_programme_via_llm(
     
     system_prompt = (
         "You are a precise data extraction assistant for cinema showtimes.\n"
-        f"Today's date is {today}. Extract ALL film screenings scheduled between {today} and {four_weeks_later}.\n"
-        "Given the text content of a cinema's programme webpage, "
-        "extract EVERY individual film screening as structured JSON.\n"
-        "IMPORTANT: Be thorough and extract ALL films mentioned, even if dates are unclear.\n"
-        "Focus only on feature film screenings (ignore ads, gift cards, generic news, past events).\n"
-        "Extract EVERY film that appears on the schedule, including:\n"
-        "- Films marked as 'now playing', 'coming soon', 'this week', 'next week', 'upcoming'\n"
-        "- Films with specific dates in the next 4 weeks\n"
-        "- Films in current/upcoming series or retrospectives\n"
-        "- Films listed in calendars, schedules, or programme listings\n"
-        "- Films mentioned in any context that suggests they will be shown\n"
-        "For each screening, provide:\n"
-        "- title: the film title (string, exact as shown, remove any 'Q&A', '35mm', etc. annotations)\n"
-        "- start_datetime: an ISO 8601 datetime string (YYYY-MM-DDTHH:MM) or date-only (YYYY-MM-DD).\n"
-        f"  - If 'now playing' or no date shown, use today's date ({today})\n"
-        "  - If 'this week', use a date within the next 7 days\n"
-        "  - If 'next week', use a date 7-14 days from today\n"
-        "  - If only a date range is given, use the start date\n"
-        "  - If multiple showtimes for same film, return one entry per distinct date\n"
-        "  - If date is completely unclear but film is listed, use today's date\n"
-        "CRITICAL: If you see ANY film titles mentioned anywhere on the page, extract them. "
-        "It's better to extract too many than to miss films.\n"
-        "Look for film titles in: lists, calendars, schedules, programme descriptions, "
-        "film series names, retrospective titles, 'now showing', 'coming soon' sections, "
-        "and anywhere else films might be mentioned.\n"
-        "Return ONLY valid JSON with this exact top-level shape:\n"
-        "{ \"screenings\": [ { \"title\": \"Film Title\", \"start_datetime\": \"2024-01-15\" }, ... ] }"
+        f"Today's date is {today}. Extract film screenings that have a known date between {today} and {four_weeks_later}.\n"
+        "CRITICAL - Prefer specific calendar dates: Only include a film when the page shows a specific date "
+        "(e.g. 'March 15', 'Feb 20-22', 'next Friday') or a dated calendar/schedule. Use that exact date as start_datetime (YYYY-MM-DD).\n"
+        "Only for films the page explicitly labels as 'now playing' or 'showing today' for this venue (e.g. in a 'Now Playing' section), "
+        f"set start_datetime to {today} AND set date_context to \"now_playing\". Do this for at most a small number of films (the actual current slate).\n"
+        "Do NOT use today's date for films that appear only in a general list, roster, or calendar without an explicit 'now playing' label. Omit those.\n"
+        "For each screening provide: title (string), start_datetime (YYYY-MM-DD), and if the film is explicitly 'now playing' then date_context: \"now_playing\".\n"
+        "If 'this week' or 'next week', use a specific date from the page or within that range (e.g. next 7 or 14 days).\n"
+        "Return ONLY valid JSON: { \"screenings\": [ { \"title\": \"...\", \"start_datetime\": \"YYYY-MM-DD\", \"date_context\": \"now_playing\" only when appropriate }, ... ] }"
     )
 
     user_prompt = (
@@ -317,16 +318,22 @@ def scrape_programme_via_llm(
         title = (item.get("title") or "").strip()
         if not title:
             continue
-        dt_raw = item.get("start_datetime") or item.get("date")
+        dt_raw = item.get("start_datetime") or item.get("date") or item.get("start_date")
         start_dt = _parse_event_datetime(dt_raw)
-        # Fallback: if date parsing fails but we have a title, use today as default
-        # (assumes "now playing" if no date was extractable)
+        # Only allow "today" when the model explicitly indicated now playing / this week
         if start_dt is None:
-            start_dt = today_dt
-        # If date is more than 30 days in the past, assume it's "now playing" and use today
-        # (some sites show past dates for currently playing films)
+            date_context = (item.get("date_context") or item.get("date_source") or "").lower()
+            if date_context in ("now_playing", "this_week", "currently_showing"):
+                start_dt = today_dt
+            else:
+                continue  # Skip films with no parseable date; do not default to today
+        # If date is far in the past, treat as "now playing" only if model said so
         if start_dt < (dt.datetime.now() - dt.timedelta(days=30)):
-            start_dt = today_dt
+            date_context = (item.get("date_context") or item.get("date_source") or "").lower()
+            if date_context in ("now_playing", "this_week", "currently_showing", ""):
+                start_dt = today_dt
+            else:
+                continue  # Skip past-dated unless it's clearly current
         screenings.append(
             Screening(
                 title=title,
@@ -339,6 +346,8 @@ def scrape_programme_via_llm(
                 raw=item,
             )
         )
+    # Cap how many screenings per venue can have "today" — avoids calendar dumps all dated today
+    screenings = _cap_today_screenings_per_venue(screenings)
     return screenings
 
 
@@ -366,18 +375,13 @@ def scrape_programme_via_llm_aggressive(
     four_weeks_later = (dt.datetime.now() + dt.timedelta(weeks=4)).strftime("%Y-%m-%d")
     
     system_prompt = (
-        "You are an EXTREMELY thorough data extraction assistant for cinema showtimes.\n"
-        f"Today's date is {today}. Extract ALL film screenings scheduled between {today} and {four_weeks_later}.\n"
-        "CRITICAL: Extract EVERY film title you see on this page, even if:\n"
-        "- The date is unclear or missing\n"
-        "- It's only mentioned in passing\n"
-        "- It's in a list, calendar, or schedule\n"
-        "- It's part of a series or retrospective name\n"
-        "- It appears in 'now playing', 'coming soon', 'upcoming', or any other section\n"
-        "Look in EVERY part of the page: headers, navigation, main content, sidebars, footers, calendars, lists.\n"
-        "If you see a film title ANYWHERE, extract it with today's date if no date is given.\n"
-        "Return ONLY valid JSON with this exact top-level shape:\n"
-        "{ \"screenings\": [ { \"title\": \"Film Title\", \"start_datetime\": \"2024-01-15\" }, ... ] }"
+        "You are a data extraction assistant for cinema showtimes.\n"
+        f"Today's date is {today}. Extract film screenings with a known date between {today} and {four_weeks_later}.\n"
+        "Prefer specific calendar dates from the page. Only use today's date for films the page explicitly labels "
+        "'now playing' or 'showing today', and set date_context to \"now_playing\" for those (at most a few per venue). "
+        "Do NOT use today for films in a general list/roster with no date. Omit films without a clear date.\n"
+        "Provide title, start_datetime (YYYY-MM-DD), and date_context: \"now_playing\" only when the page says now playing.\n"
+        "Return ONLY valid JSON: { \"screenings\": [ { \"title\": \"...\", \"start_datetime\": \"YYYY-MM-DD\" }, ... ] }"
     )
 
     user_prompt = (
@@ -417,14 +421,20 @@ def scrape_programme_via_llm_aggressive(
         title = (item.get("title") or "").strip()
         if not title:
             continue
-        dt_raw = item.get("start_datetime") or item.get("date")
+        dt_raw = item.get("start_datetime") or item.get("date") or item.get("start_date")
         start_dt = _parse_event_datetime(dt_raw)
         if start_dt is None:
-            start_dt = today_dt
-        # If date is more than 30 days in the past, assume it's "now playing" and use today
-        # (some sites show past dates for currently playing films)
+            date_context = (item.get("date_context") or item.get("date_source") or "").lower()
+            if date_context in ("now_playing", "this_week", "currently_showing"):
+                start_dt = today_dt
+            else:
+                continue
         if start_dt < (dt.datetime.now() - dt.timedelta(days=30)):
-            start_dt = today_dt
+            date_context = (item.get("date_context") or item.get("date_source") or "").lower()
+            if date_context in ("now_playing", "this_week", "currently_showing", ""):
+                start_dt = today_dt
+            else:
+                continue
         screenings.append(
             Screening(
                 title=title,
@@ -437,7 +447,25 @@ def scrape_programme_via_llm_aggressive(
                 raw=item,
             )
         )
+    screenings = _cap_today_screenings_per_venue(screenings)
     return screenings
+
+
+def _cap_today_screenings_per_venue(screenings: List[Screening], max_today_per_venue: int = 8) -> List[Screening]:
+    """If a venue has more than max_today_per_venue screenings with today's date, keep only the first that many."""
+    if not screenings:
+        return screenings
+    today = dt.datetime.now().date()
+    today_list: List[Screening] = []
+    other_list: List[Screening] = []
+    for s in screenings:
+        if s.start_dt.date() == today:
+            today_list.append(s)
+        else:
+            other_list.append(s)
+    if len(today_list) <= max_today_per_venue:
+        return screenings
+    return other_list + today_list[:max_today_per_venue]
 
 
 def scrape_programme(
@@ -466,6 +494,7 @@ def scrape_programme(
             screenings = []
 
     if not screenings:
+        # Fallback: single LLM-based extraction (no aggressive "extract everything" retry).
         llm_screenings = []
         try:
             print(f"  -> {source.name}: Trying LLM extraction...")
@@ -474,20 +503,9 @@ def scrape_programme(
                 print(f"[OK] {source.name}: Found {len(llm_screenings)} screenings via LLM")
             else:
                 print(f"[WARN] {source.name}: LLM extraction returned 0 screenings")
-                # Try one more time with a more aggressive prompt if first attempt failed
-                if len(llm_screenings) == 0:
-                    print(f"  -> {source.name}: Retrying LLM extraction with more aggressive extraction...")
-                    try:
-                        # Retry with a more aggressive approach - extract ANY film titles seen
-                        llm_screenings_retry = scrape_programme_via_llm_aggressive(source, session=session)
-                        if llm_screenings_retry:
-                            print(f"[OK] {source.name}: Found {len(llm_screenings_retry)} screenings via LLM (aggressive retry)")
-                            llm_screenings = llm_screenings_retry
-                    except Exception as e2:
-                        print(f"[ERROR] {source.name}: Aggressive retry also failed: {e2}")
         except Exception as e:
             print(f"[ERROR] {source.name}: LLM extraction failed: {e}")
-            # For rate limiting, wait and retry once
+            # For rate limiting, wait and retry once with the same precise prompt.
             if "429" in str(e) or "rate limit" in str(e).lower():
                 print(f"  -> {source.name}: Rate limited, waiting 10s before retry...")
                 import time
@@ -516,9 +534,16 @@ def filter_screenings_to_window(
     now: Optional[dt.datetime] = None,
 ) -> List[Screening]:
     """
-    Filter screenings to those within the next N weeks.
-    Also includes screenings from up to 14 days ago (in case of "now playing" with past dates).
-    More lenient to catch films that are currently playing.
+    Filter screenings to those within the date window.
+
+    Date range limits:
+      - start: now - 14 days (include films that started up to 14 days ago, "now playing")
+      - end:   now + weeks_ahead (default 4 weeks)
+
+    So the window is [now-14d, now+4w]. Screenings with start_dt outside this range are dropped.
+    Note: When scrapers (especially LLM) don't return a date, start_dt defaults to "today", so
+    those screenings always pass the filter. That can make per-venue counts much higher than
+    a real 4-week calendar; the caller may apply a per-venue cap to avoid full calendar dumps.
     """
     now = now or dt.datetime.now()
     start = now - dt.timedelta(days=14)  # Include films that started up to 14 days ago (more lenient)

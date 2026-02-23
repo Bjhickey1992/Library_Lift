@@ -1237,11 +1237,13 @@ Return ONLY valid JSON: {{"thematic_descriptors": "...", "stylistic_descriptors"
         *,
         weeks_ahead: int = 4,
         output_path: str = "upcoming_exhibitions.xlsx",
+        fresh: bool = False,
     ) -> pd.DataFrame:
         """
         Scrape cinema exhibitions progressively, adding to Excel as we go.
         Resumable: if the script times out, run again to load existing file,
         skip cinemas already present (by programme_url), and continue.
+        Set fresh=True to ignore any existing file and generate a completely new file.
 
         Processes each cinema one by one:
         1. Scrapes screenings
@@ -1253,7 +1255,7 @@ Return ONLY valid JSON: {{"thematic_descriptors": "...", "stylistic_descriptors"
         out_path = Path(output_path)
         df_existing: Optional[pd.DataFrame] = None
         done_urls: set = set()
-        if out_path.exists():
+        if not fresh and out_path.exists():
             try:
                 df_existing = pd.read_excel(output_path)
                 if len(df_existing) > 0 and "programme_url" in df_existing.columns:
@@ -1266,6 +1268,8 @@ Return ONLY valid JSON: {{"thematic_descriptors": "...", "stylistic_descriptors"
                 print(f"[ExhibitionAgent] Could not load existing file for resume: {e}")
                 df_existing = None
                 done_urls = set()
+        elif fresh:
+            print(f"[ExhibitionAgent] Fresh run: generating a completely new exhibition file (ignoring any existing file).")
 
         sources = self.load_cinema_sources(cinemas_yaml_path)
         print(f"\n[ExhibitionAgent] Scraping {len(sources)} enabled cinemas for next {weeks_ahead} weeks...")
@@ -1337,6 +1341,13 @@ Return ONLY valid JSON: {{"thematic_descriptors": "...", "stylistic_descriptors"
                 print(f"[ExhibitionAgent]   Found {len(screenings)} total screenings before filtering")
             
             screenings = filter_screenings_to_window(screenings, weeks_ahead=weeks_ahead)
+            # Per-venue cap: many LLM scrapers default missing dates to "today", so we can get
+            # hundreds of films per venue (full calendar). Cap to a realistic 4-week ceiling;
+            # keep soonest by start_dt.
+            max_screenings_per_venue = 200
+            if len(screenings) > max_screenings_per_venue:
+                screenings = sorted(screenings, key=lambda s: s.start_dt)[:max_screenings_per_venue]
+                print(f"[ExhibitionAgent]   Capped to {max_screenings_per_venue} screenings (date-window limit)")
             print(f"[ExhibitionAgent]   Found {len(screenings)} screenings within window")
             
             if not screenings:

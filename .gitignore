@@ -18,6 +18,10 @@ __pycache__/
 .last_weekly_phase2_run
 .weekly_phase2_running
 
+# Generated exhibition embeddings (regenerate with Phase 2)
+upcoming_exhibitions_embeddings.npy
+upcoming_exhibitions_embeddings.xlsx
+
 # IDE / OS
 .idea/
 .vscode/
