@@ -1160,40 +1160,12 @@ class ChatbotAgent:
         return library_df.loc[matching_indices]
     
     def _apply_exhibition_filters(self, exhibitions_df: pd.DataFrame, intent: QueryIntent) -> pd.DataFrame:
-        """Apply filters to exhibition DataFrame based on query intent."""
+        """Apply filters to exhibition DataFrame based on query intent.
+        Order: territory and city first (user location gates), then match_to_specific_film, then venue/time.
+        """
         filtered_df = exhibitions_df.copy()
-        
-        # When user specifies ONE film to match against, restrict exhibitions to that film only.
-        # Use flexible partial matching: try multiple variants so unconventional input still matches.
-        if intent.match_to_specific_film:
-            film_raw = intent.match_to_specific_film.strip()
-            film_lower = film_raw.lower()
-            df_before_film = filtered_df
-            # Build search variants: full phrase, last N words, without leading "the", punctuation-stripped words
-            variants = [film_lower]
-            words = [w for w in re.split(r"[\s,;]+", film_lower) if w]
-            for n in (2, 3, 1):
-                if len(words) >= n and n >= 1:
-                    core = " ".join(words[-n:])
-                    if len(core) >= 2 and core not in variants:
-                        variants.append(core)
-            # Without leading "the" (e.g. "the bone temple" -> "bone temple")
-            if film_lower.startswith("the ") and len(film_lower) > 4:
-                v = film_lower[4:].strip()
-                if v not in variants:
-                    variants.append(v)
-            # Try each variant until one matches
-            for search_phrase in variants:
-                if len(search_phrase) < 2:
-                    continue
-                title_mask = df_before_film["title"].astype(str).str.lower()
-                filtered_df = df_before_film[title_mask.str.contains(re.escape(search_phrase), na=False)]
-                if len(filtered_df) > 0:
-                    break
-            if len(filtered_df) == 0:
-                return filtered_df
-        
-        # Territory filter: only when mode is "hard" (soft = prefer in ranking, don't filter)
+
+        # Territory filter first: limit to cinemas in the requested country (e.g. France)
         territory_mode = getattr(intent, "territory_mode", "hard")
         if territory_mode == "hard" and "country" in filtered_df.columns:
             prefs = getattr(intent, "territory_preferences", None) or ([intent.territory] if intent.territory else None)
@@ -1209,12 +1181,38 @@ class ChatbotAgent:
                     mask = mask | m
                 filtered_df = filtered_df[mask]
 
-        # City filter: only when city_mode is hard
+        # City filter: limit to cinemas in the requested city (e.g. Paris)
         city_mode = getattr(intent, "city_mode", "hard")
         if city_mode == "hard" and intent.city:
             loc_col = filtered_df["location"].astype(str).str
             city_lower = intent.city.lower()
             filtered_df = filtered_df[loc_col.lower().str.contains(re.escape(city_lower), na=False)]
+
+        # When user specifies ONE film to match against, restrict exhibitions to that film only (within location).
+        if intent.match_to_specific_film:
+            film_raw = intent.match_to_specific_film.strip()
+            film_lower = film_raw.lower()
+            df_before_film = filtered_df
+            variants = [film_lower]
+            words = [w for w in re.split(r"[\s,;]+", film_lower) if w]
+            for n in (2, 3, 1):
+                if len(words) >= n and n >= 1:
+                    core = " ".join(words[-n:])
+                    if len(core) >= 2 and core not in variants:
+                        variants.append(core)
+            if film_lower.startswith("the ") and len(film_lower) > 4:
+                v = film_lower[4:].strip()
+                if v not in variants:
+                    variants.append(v)
+            for search_phrase in variants:
+                if len(search_phrase) < 2:
+                    continue
+                title_mask = df_before_film["title"].astype(str).str.lower()
+                filtered_df = df_before_film[title_mask.str.contains(re.escape(search_phrase), na=False)]
+                if len(filtered_df) > 0:
+                    break
+            if len(filtered_df) == 0:
+                return filtered_df
 
         # Venue filter: only when venue_mode is hard (soft = prefer in ranking)
         venue_mode = getattr(intent, "venue_mode", "hard")

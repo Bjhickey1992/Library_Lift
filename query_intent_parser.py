@@ -834,6 +834,27 @@ Return JSON with:
         # Simplified - LLM will handle complex extraction
         return None
     
+    def _looks_like_location(self, phrase: str) -> bool:
+        """True if phrase is a territory or city name, so it should not be used as match_to_specific_film."""
+        if not phrase or len(phrase.strip()) < 2:
+            return False
+        pl = phrase.strip().lower()
+        # Territory phrases (including "in france", "in the us")
+        location_phrases = [
+            "in france", "france", "in the us", "in us", "usa", "united states",
+            "in the uk", "in uk", "uk", "united kingdom", "britain", "england",
+            "in canada", "canada", "in mexico", "mexico",
+            "in paris", "paris", "in london", "london", "in berlin", "berlin",
+            "in new york", "new york", "nyc", "in la", "los angeles",
+            "in chicago", "chicago", "in seattle", "seattle", "in austin", "austin",
+            "in toronto", "toronto", "in vancouver", "vancouver",
+        ]
+        if pl in location_phrases:
+            return True
+        if re.match(r"^in\s+(the\s+)?(us|uk|france|paris|london|canada|mexico)$", pl):
+            return True
+        return False
+
     def _extract_specific_film(self, query_lower: str) -> Optional[str]:
         """Extract specific film title mentioned as the similarity reference in query."""
         def clean(s: str) -> str:
@@ -866,7 +887,8 @@ Return JSON with:
                 title = clean(m.group(1))
                 if (len(title) > 1 and title.lower() not in ("the", "a", "an", "it", "that", "this")
                         and not looks_like_date_phrase(title)
-                        and not self._looks_like_film_elements_not_title(title)):
+                        and not self._looks_like_film_elements_not_title(title)
+                        and not self._looks_like_location(title)):
                     return title
 
         # "Due to / because of / given the success of X" etc. Capture film title until , . or end.
@@ -883,7 +905,8 @@ Return JSON with:
             if m:
                 title = clean(m.group(1))
                 if (len(title) > 1 and title.lower() not in ("the", "a", "an", "it", "that", "this")
-                        and not looks_like_date_phrase(title)):
+                        and not looks_like_date_phrase(title)
+                        and not self._looks_like_location(title)):
                     if self._looks_like_film_elements_not_title(title):
                         continue  # try next pattern
                     return title
@@ -902,7 +925,8 @@ Return JSON with:
             if m:
                 title = clean(m.group(1))
                 if (len(title) > 1 and title.lower() not in ("the", "a", "an", "it", "that", "this")
-                        and not looks_like_date_phrase(title)):
+                        and not looks_like_date_phrase(title)
+                        and not self._looks_like_location(title)):
                     if self._looks_like_film_elements_not_title(title):
                         return None  # e.g. "the bridge and the lovers" -> use film_descriptor_terms instead
                     return title
