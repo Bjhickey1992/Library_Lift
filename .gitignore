@@ -18,9 +18,9 @@ __pycache__/
 .last_weekly_phase2_run
 .weekly_phase2_running
 
-# Generated exhibition embeddings (regenerate with Phase 2)
-upcoming_exhibitions_embeddings.npy
-upcoming_exhibitions_embeddings.xlsx
+# Generated exhibition embeddings — tracked so Streamlit Cloud can use them
+# upcoming_exhibitions_embeddings.npy
+# upcoming_exhibitions_embeddings.xlsx
 
 # Local copies / raw (optional to commit)
 upcoming_exhibitions_copy.xlsx
