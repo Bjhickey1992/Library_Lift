@@ -22,6 +22,14 @@ __pycache__/
 upcoming_exhibitions_embeddings.npy
 upcoming_exhibitions_embeddings.xlsx
 
+# Local copies / raw (optional to commit)
+upcoming_exhibitions_copy.xlsx
+upcoming_exhibitions_raw.xlsx
+
+# Excel lock / temp (Windows)
+~$*.xlsx
+~$*.xls
+
 # IDE / OS
 .idea/
 .vscode/

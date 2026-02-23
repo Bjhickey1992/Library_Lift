@@ -38,7 +38,12 @@ exhibition_agent = ExhibitionScrapingAgent(openai_api_key=os.getenv("OPENAI_API_
 
 if args.fresh:
     print("Phase 2: FRESH RUN (completely new file, no resume).\n")
-    for p in [EXHIBITIONS_PATH, "upcoming_exhibitions_embeddings.npy", "upcoming_exhibitions_embeddings.xlsx"]:
+    for p in [
+        EXHIBITIONS_PATH,
+        "upcoming_exhibitions_raw.xlsx",
+        "upcoming_exhibitions_embeddings.npy",
+        "upcoming_exhibitions_embeddings.xlsx",
+    ]:
         if Path(p).exists():
             Path(p).unlink()
             print(f"  Removed existing {p}")

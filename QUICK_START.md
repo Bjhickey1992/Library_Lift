@@ -49,8 +49,12 @@ python add_need_field.py
 # Library embeddings
 python generate_library_embeddings.py
 
-# Phase 2: Exhibitions (scrapes cinemas, adds need, builds exhibition embeddings)
+# Phase 2: Exhibitions (scrapes cinemas, then need + embeddings)
 python run_phase2_exhibitions.py
+
+# Or, if you already have upcoming_exhibitions.xlsx and only need "need" + embeddings:
+# Set ANTHROPIC_API_KEY for the need step, then:
+python run_exhibition_need_and_embeddings.py
 ```
 
 Then run the app as in step 3.

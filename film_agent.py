@@ -1196,9 +1196,14 @@ Return ONLY valid JSON: {{"thematic_descriptors": "...", "stylistic_descriptors"
             )
         return [s for s in sources if s.enabled and s.id and s.name and s.country and s.programme_url]
 
-    def _enrich_screening_via_tmdb(self, screening: Screening) -> Optional[FilmRecord]:
+    def _enrich_screening_via_tmdb(
+        self,
+        screening: Screening,
+        override_title_for_lookup: Optional[str] = None,
+    ) -> Optional[FilmRecord]:
         """Convert a scraped screening into a FilmRecord by resolving via TMDb."""
-        normalized_title = normalize_title_for_lookup(screening.title)
+        lookup_title = override_title_for_lookup or screening.title
+        normalized_title = normalize_title_for_lookup(lookup_title)
         candidates = self.tmdb.search_movie(normalized_title, limit=5)
         if not candidates:
             return None
@@ -1230,6 +1235,75 @@ Return ONLY valid JSON: {{"thematic_descriptors": "...", "stylistic_descriptors"
             record = self._enrich_film_with_semantic_descriptors(record)
         
         return record
+
+    def _clean_titles_for_enrichment(
+        self,
+        screenings: List[Screening],
+    ) -> Dict[int, str]:
+        """
+        Use an LLM to clean up noisy exhibition titles before a second TMDb lookup.
+
+        Returns a mapping from index-in-batch -> cleaned_title. This helper is
+        used only to improve TMDb search strings; it does not change the final
+        FilmRecord titles (those still come from TMDb).
+        """
+        if not screenings or not self.openai_client:
+            return {}
+
+        try:
+            from json import loads as json_loads
+        except ImportError:
+            json_loads = None
+
+        if json_loads is None:
+            return {}
+
+        system_prompt = (
+            "You clean up noisy cinema programme titles for TMDb search.\n"
+            "For each item, output only the core film title, without series labels, venue branding,\n"
+            "format notes (35mm, DCP), Q&A text, or date information.\n"
+            "Return a JSON object of the form:\n"
+            '{"cleaned_titles":[{"index":0,"clean_title":"Clean Film Title"}, ...]}'
+        )
+
+        lines = []
+        for idx, s in enumerate(screenings):
+            lines.append(f"{idx}. {s.title}")
+        user_prompt = (
+            "Here are noisy cinema programme titles. For each line, produce a cleaned film title:\n\n"
+            + "\n".join(lines)
+        )
+
+        try:
+            resp = self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0,
+            )
+        except Exception:
+            return {}
+
+        try:
+            content = resp.choices[0].message.content
+            data = json_loads(content)
+        except Exception:
+            return {}
+
+        result: Dict[int, str] = {}
+        cleaned_list = data.get("cleaned_titles") or []
+        if isinstance(cleaned_list, list):
+            for item in cleaned_list:
+                if not isinstance(item, dict):
+                    continue
+                idx = item.get("index")
+                title = (item.get("clean_title") or "").strip()
+                if isinstance(idx, int) and title:
+                    result[idx] = title
+        return result
 
     def build_exhibitions_progressively(
         self,
@@ -1276,6 +1350,10 @@ Return ONLY valid JSON: {{"thematic_descriptors": "...", "stylistic_descriptors"
         print(f"[ExhibitionAgent] Output file: {output_path}\n")
 
         all_enriched_rows: List[FilmRecord] = []
+        all_raw_rows: List[Dict[str, Any]] = []
+
+        # Derive a raw-output path next to the enriched exhibition file.
+        raw_output_path = out_path.with_name(out_path.stem + "_raw.xlsx")
 
         def _aggregate_and_dates(raw_df: pd.DataFrame) -> pd.DataFrame:
             def _sorted_unique_dates(series: pd.Series) -> str:
@@ -1353,16 +1431,53 @@ Return ONLY valid JSON: {{"thematic_descriptors": "...", "stylistic_descriptors"
             if not screenings:
                 continue
             
-            # Enrich with TMDb metadata
+            # Accumulate raw screenings (post-window, post-cap) for debugging and reproducibility.
+            raw_rows_for_source: List[Dict[str, Any]] = []
+            for s in screenings:
+                raw_rows_for_source.append(
+                    {
+                        "title": s.title,
+                        "start_datetime": s.start_dt,
+                        "venue_name": s.venue_name,
+                        "country": s.country,
+                        "city": s.city,
+                        "programme_url": s.source_url,
+                        "source_id": s.source_id,
+                    }
+                )
+            all_raw_rows.extend(raw_rows_for_source)
+
+            # Enrich with TMDb metadata (two-pass: direct, then optional cleaned-title retry)
             print(f"[ExhibitionAgent]   Enriching {len(screenings)} screenings with TMDb metadata...")
+            enriched_for_source: List[FilmRecord] = []
+            unmatched_for_source: List[Screening] = []
             for i, s in enumerate(screenings, 1):
                 rec = self._enrich_screening_via_tmdb(s)
                 if rec is not None:
-                    all_enriched_rows.append(rec)
+                    enriched_for_source.append(rec)
+                else:
+                    unmatched_for_source.append(s)
                 if i % 10 == 0:
                     print(f"[ExhibitionAgent]     Progress: {i}/{len(screenings)}")
-            
-            print(f"[ExhibitionAgent]   Added {len([r for r in all_enriched_rows if r.programme_url == source.programme_url])} enriched films from {source.name}")
+
+            # Second pass: try to clean noisy titles via LLM and retry TMDb lookup.
+            if unmatched_for_source:
+                cleaned_map = self._clean_titles_for_enrichment(unmatched_for_source)
+                if cleaned_map:
+                    for idx_u, s in enumerate(unmatched_for_source):
+                        cleaned_title = cleaned_map.get(idx_u)
+                        if not cleaned_title:
+                            continue
+                        rec = self._enrich_screening_via_tmdb(
+                            s,
+                            override_title_for_lookup=cleaned_title,
+                        )
+                        if rec is not None:
+                            enriched_for_source.append(rec)
+
+            all_enriched_rows.extend(enriched_for_source)
+
+            print(f"[ExhibitionAgent]   Added {len(enriched_for_source)} enriched films from {source.name}")
             done_urls.add(source.programme_url)
 
             # Write to Excel after each cinema (progressive save; merge with existing when resuming)
@@ -1376,6 +1491,11 @@ Return ONLY valid JSON: {{"thematic_descriptors": "...", "stylistic_descriptors"
                 combined.to_excel(output_path, index=False)
                 df_existing = combined
                 print(f"[ExhibitionAgent]   Saved {len(combined)} unique films to {output_path}")
+
+            if all_raw_rows:
+                df_raw = pd.DataFrame(all_raw_rows)
+                df_raw.to_excel(raw_output_path, index=False)
+                print(f"[ExhibitionAgent]   Saved {len(df_raw)} raw screenings to {raw_output_path}")
 
         # Final state: df_existing has full data (from resume load and/or incremental writes)
         if df_existing is None:
