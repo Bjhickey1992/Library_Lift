@@ -97,13 +97,12 @@ def _maybe_run_weekly_phase2():
 _maybe_run_weekly_phase2()
 
 # Auto-generate embeddings if missing or invalid (for deployment)
-# Use app root anchored to this script so paths work when Streamlit Cloud cwd differs from app dir
-@st.cache_resource
+# Check both script dir and cwd (Streamlit Cloud uses repo root as cwd); use first root where both files are valid
 def check_embeddings_status():
-    """Check if embeddings exist and are valid. Returns status dict."""
-    lib_path = _app_root / "lionsgate_library_embeddings.npy"
-    ex_path = _app_root / "upcoming_exhibitions_embeddings.npy"
-    
+    """Check if embeddings exist and are valid. Returns status dict. Not cached so path resolution is fresh each run."""
+    lib_name = "lionsgate_library_embeddings.npy"
+    ex_name = "upcoming_exhibitions_embeddings.npy"
+
     def _valid(path: Path) -> bool:
         if not path.exists():
             return False
@@ -112,15 +111,39 @@ def check_embeddings_status():
             return arr.size > 0 and not np.allclose(arr, 0)
         except Exception:
             return False
+
+    # Try script dir, then cwd (Streamlit Cloud = repo root), then parent of script (app in subfolder)
+    seen = set()
+    candidates = []
+    for p in [_app_root, Path(os.getcwd()), _app_root.parent]:
+        r = p.resolve()
+        if r not in seen:
+            seen.add(r)
+            candidates.append(r)
+    for root in candidates:
+        lib_path = root / lib_name
+        ex_path = root / ex_name
+        if _valid(lib_path) and _valid(ex_path):
+            return {
+                "lib_valid": True,
+                "ex_valid": True,
+                "both_valid": True,
+                "lib_path": lib_path,
+                "ex_path": ex_path,
+                "effective_root": root,
+            }
+    # Not found in any candidate; report status for script dir only
+    lib_path = _app_root / lib_name
+    ex_path = _app_root / ex_name
     lib_valid = _valid(lib_path)
     ex_valid = _valid(ex_path)
-    
     return {
         "lib_valid": lib_valid,
         "ex_valid": ex_valid,
-        "both_valid": lib_valid and ex_valid,
+        "both_valid": False,
         "lib_path": lib_path,
         "ex_path": ex_path,
+        "effective_root": _app_root,
     }
 
 # Check embeddings on startup
@@ -853,7 +876,7 @@ if "agent_studio" not in st.session_state:
     st.session_state.agent_studio = None
 
 if "chatbot_agent" not in st.session_state or st.session_state.agent_studio != st.session_state.selected_studio:
-    _init_chatbot_agent(st.session_state.selected_studio, _app_root)
+    _init_chatbot_agent(st.session_state.selected_studio, embeddings_status.get("effective_root", _app_root))
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
