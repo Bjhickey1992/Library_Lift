@@ -12,7 +12,12 @@ from chatbot_agent import ChatbotAgent
 from config import get_openai_api_key
 import os
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import List, Dict, Optional, Tuple
+
+# Ensure app runs with project root as cwd so relative paths (.npy, .xlsx) resolve
+_app_root = Path(__file__).resolve().parent
+os.chdir(_app_root)
 
 # Streamlit Cloud: expose Secrets as environment variables so config.py works unchanged.
 # (Do not overwrite any variables already set in the environment.)
@@ -97,8 +102,10 @@ def check_embeddings_status():
     """Check if embeddings exist and are valid. Returns status dict."""
     from pathlib import Path
     
-    lib_path = Path("lionsgate_library_embeddings.npy")
-    ex_path = Path("upcoming_exhibitions_embeddings.npy")
+    # Resolve paths relative to this script so they work regardless of Streamlit cwd
+    _root = Path(__file__).resolve().parent
+    lib_path = _root / "lionsgate_library_embeddings.npy"
+    ex_path = _root / "upcoming_exhibitions_embeddings.npy"
     
     lib_valid = lib_path.exists() and not np.allclose(np.load(lib_path), 0)
     ex_valid = ex_path.exists() and not np.allclose(np.load(ex_path), 0)
