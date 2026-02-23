@@ -272,8 +272,13 @@ def run_deep_gate_tie_nudge(
             if getattr(intent, "territory_mode", "hard") == "soft" and getattr(intent, "territory_preferences", None):
                 ex_country = (ex_row.get("country") or "").strip().upper()
                 prefs = [(t or "").strip().upper() for t in (intent.territory_preferences or []) if (t or "").strip()]
+                aliases = {"US": ("US", "USA"), "UK": ("UK", "GB"), "FR": ("FR", "FRANCE"), "CA": ("CA", "CANADA"), "MX": ("MX", "MEXICO")}
                 for i, p in enumerate(prefs):
-                    if ex_country == p or (ex_country == "USA" and p == "US") or (ex_country == "GB" and p == "UK"):
+                    p = (p or "").strip().upper()
+                    if p in aliases and ex_country in aliases[p]:
+                        relevance_score += 0.05 * (1.0 - i * 0.25)
+                        break
+                    if ex_country == p:
                         relevance_score += 0.05 * (1.0 - i * 0.25)
                         break
             if getattr(intent, "venue_mode", "hard") == "soft" and getattr(intent, "venue_preferences", None):
@@ -373,6 +378,8 @@ def _build_unique_matches(
             "exhibition_matches": exhibition_matches,
         })
     unique_matches = [m for m in unique_matches if (m.get("exhibition_similarity") or 0) >= min_exhibition_similarity]
+    # Order by the relevance we actually display so list order matches displayed scores
+    unique_matches.sort(key=lambda m: (m.get("relevance_score") or 0), reverse=True)
     return unique_matches
 
 

@@ -24,6 +24,15 @@ try:
 except ImportError:
     OpenAI = None
 
+# Territory code -> accepted country values (code + full name) for filtering
+TERRITORY_COUNTRY_ALIASES = {
+    "US": ("US", "USA"),
+    "UK": ("UK", "GB"),
+    "FR": ("FR", "FRANCE"),
+    "CA": ("CA", "CANADA"),
+    "MX": ("MX", "MEXICO"),
+}
+
 
 class ChatbotAgent:
     """
@@ -166,10 +175,10 @@ class ChatbotAgent:
         exhibitions_df = self._load_exhibitions()
         lib_embeddings, ex_embeddings = self._load_embeddings(required=True)  # Required for similarity matching
         
-        # Filter exhibitions by territory
-        territory_exhibitions = exhibitions_df[
-            exhibitions_df["country"].str.upper() == territory.upper()
-        ].copy()
+        # Filter exhibitions by territory (accept code or full name, e.g. FR or FRANCE)
+        country_upper = exhibitions_df["country"].astype(str).str.strip().str.upper()
+        accepted = TERRITORY_COUNTRY_ALIASES.get(territory.upper().strip(), (territory.upper().strip(),))
+        territory_exhibitions = exhibitions_df[country_upper.isin(accepted)].copy()
         
         if len(territory_exhibitions) == 0:
             return []
@@ -1181,14 +1190,11 @@ class ChatbotAgent:
                 country_upper = filtered_df["country"].astype(str).str.strip().str.upper()
                 mask = pd.Series(False, index=filtered_df.index)
                 for ter in prefs:
-                    t = (ter or "").upper()
+                    t = (ter or "").upper().strip()
                     if not t:
                         continue
-                    m = country_upper == t
-                    if t == "US":
-                        m = m | (country_upper == "USA")
-                    elif t == "UK":
-                        m = m | (country_upper == "GB")
+                    accepted = TERRITORY_COUNTRY_ALIASES.get(t, (t,))
+                    m = country_upper.isin(accepted)
                     mask = mask | m
                 filtered_df = filtered_df[mask]
 
@@ -1640,11 +1646,11 @@ Return only the 2-letter country code, or "None" if no country is mentioned."""
         """
         exhibitions_df = self._load_exhibitions()
         
-        # Filter by territory if specified
+        # Filter by territory if specified (accept code or full name, e.g. FR or FRANCE)
         if territory:
-            exhibitions_df = exhibitions_df[
-                exhibitions_df["country"].str.upper() == territory.upper()
-            ].copy()
+            country_upper = exhibitions_df["country"].astype(str).str.strip().str.upper()
+            accepted = TERRITORY_COUNTRY_ALIASES.get(territory.upper().strip(), (territory.upper().strip(),))
+            exhibitions_df = exhibitions_df[country_upper.isin(accepted)].copy()
         
         if len(exhibitions_df) == 0:
             return {
@@ -1758,11 +1764,11 @@ Return only the 2-letter country code, or "None" if no country is mentioned."""
         library_df = self._load_library()
         exhibitions_df = self._load_exhibitions()
         
-        # Filter exhibitions by territory if specified
+        # Filter exhibitions by territory if specified (accept code or full name)
         if territory:
-            exhibitions_df = exhibitions_df[
-                exhibitions_df["country"].str.upper() == territory.upper()
-            ].copy()
+            country_upper = exhibitions_df["country"].astype(str).str.strip().str.upper()
+            accepted = TERRITORY_COUNTRY_ALIASES.get(territory.upper().strip(), (territory.upper().strip(),))
+            exhibitions_df = exhibitions_df[country_upper.isin(accepted)].copy()
         
         if len(exhibitions_df) == 0:
             return []
