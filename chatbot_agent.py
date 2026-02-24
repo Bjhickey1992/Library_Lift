@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Optional, Tuple, Any, Union
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import json
 from pathlib import Path
 
@@ -38,6 +38,7 @@ TERRITORY_COUNTRY_ALIASES = {
     "FR": ("FR", "FRANCE"),
     "CA": ("CA", "CANADA"),
     "MX": ("MX", "MEXICO"),
+    "DE": ("DE", "GERMANY"),
 }
 
 
@@ -1243,29 +1244,42 @@ class ChatbotAgent:
         if intent.time_period and not intent.match_to_specific_film:
             today = datetime.now().date()
             if intent.time_period == "now" or intent.time_period == "week":
-                # Filter to exhibitions within the next 7 days
                 end_date = today + timedelta(days=7)
             elif intent.time_period == "month":
-                # Filter to exhibitions within the next 30 days
                 end_date = today + timedelta(days=30)
+            elif intent.time_period == "quarter":
+                end_date = today + timedelta(days=90)
             else:
-                end_date = today + timedelta(days=7)  # Default to week
-            
-            def _has_date_in_range(dates_str: str) -> bool:
+                end_date = today + timedelta(days=7)
+
+            def _has_date_in_range(dates_str: str, start_date: date, end_date_val: date) -> bool:
                 """Check if any scheduled date falls within the time period."""
                 if pd.isna(dates_str) or not dates_str:
                     return False
                 for date_str in str(dates_str).split(","):
                     date_str = date_str.strip()
                     try:
-                        date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
-                        if today <= date_obj <= end_date:
+                        date_obj = datetime.strptime(date_str[:10], "%Y-%m-%d").date()
+                        if start_date <= date_obj <= end_date_val:
                             return True
                     except (ValueError, AttributeError):
                         continue
                 return False
-            
-            filtered_df = filtered_df[filtered_df["scheduled_dates"].apply(_has_date_in_range)]
+
+            df_before_time = filtered_df
+            filtered_df = filtered_df[
+                filtered_df["scheduled_dates"].apply(lambda s: _has_date_in_range(s, today, end_date))
+            ]
+
+            # Fallback: when all exhibition dates are in the future (e.g. planning/upcoming data),
+            # expand window to 365 days so we still show relevant exhibitions
+            if len(filtered_df) == 0 and len(df_before_time) > 0 and "scheduled_dates" in df_before_time.columns:
+                end_date_fallback = today + timedelta(days=365)
+                filtered_df = df_before_time[
+                    df_before_time["scheduled_dates"].apply(
+                        lambda s: _has_date_in_range(s, today, end_date_fallback)
+                    )
+                ]
 
         # Exhibition date or date range: only exhibitions playing on the given date(s)
         if (intent.exhibition_date_start or intent.exhibition_date_end) and "scheduled_dates" in filtered_df.columns:
@@ -1289,9 +1303,14 @@ class ChatbotAgent:
                 filtered_df = filtered_df[filtered_df["scheduled_dates"].apply(_has_date_in_exhibition_range)]
         
         # Dynamic column_filters (any exhibition column)
+        # Skip when it would zero out results and user asked for a specific venue (preserve venue matches)
         if intent.column_filters:
-            filtered_df = self._apply_column_filters_to_df(filtered_df, intent.column_filters)
-        
+            after_cf = self._apply_column_filters_to_df(filtered_df, intent.column_filters)
+            if len(after_cf) == 0 and len(filtered_df) > 0 and getattr(intent, "venue", None):
+                pass  # Keep filtered_df; don't apply column_filters that would wipe venue results
+            else:
+                filtered_df = after_cf
+
         return filtered_df
     
     def _emphasized_match_factors(self, intent: QueryIntent) -> List[str]:

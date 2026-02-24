@@ -336,6 +336,17 @@ class QueryIntentParser:
             # Restore venue from regex (e.g. "Film Forum" from "at Film Forum this month")
             intent.venue = self._extract_venue(query_lower)
 
+        # Venue vs. film: never treat known venue names as match_to_specific_film (they filter exhibition location, not title)
+        _known_venue_names = frozenset(
+            s.strip() for s in "film forum,northwest film forum,riff,metrograph,bam,alamo drafthouse,alamo,landmark,angelika".split(",")
+        )
+        if intent.match_to_specific_film:
+            mf_lower = intent.match_to_specific_film.strip().lower()
+            if mf_lower in _known_venue_names or any(len(v) >= 5 and v in mf_lower for v in _known_venue_names):
+                intent.match_to_specific_film = None
+                if not intent.venue:
+                    intent.venue = self._extract_venue(query_lower)
+
         # Clamp year range to sane values (avoid LLM/carry-forward producing 2800, etc.)
         max_year = datetime.now().year + 2
         if intent.year_start is not None:
@@ -505,6 +516,8 @@ Return JSON with:
             (r"\b(canada|canadian|ca)\b", "CA"),
             # MX
             (r"\b(mexico|mexican|mx)\b", "MX"),
+            # DE
+            (r"\b(germany|german|de)\b", "DE"),
         ]
         for pattern, code in patterns:
             if re.search(pattern, query_lower, flags=re.IGNORECASE):
@@ -648,8 +661,10 @@ Return JSON with:
 
     def _extract_time_period(self, query_lower: str) -> Optional[str]:
         """Extract time period context."""
-        if any(phrase in query_lower for phrase in ["this week", "this month", "right now", "currently", "now"]):
-            if "week" in query_lower:
+        if any(phrase in query_lower for phrase in ["this week", "this month", "this quarter", "right now", "currently", "now"]):
+            if "quarter" in query_lower:
+                return "quarter"
+            elif "week" in query_lower:
                 return "week"
             elif "month" in query_lower:
                 return "month"
@@ -661,6 +676,50 @@ Return JSON with:
         """Extract exhibition date or date range when user asks for films playing on a specific date.
         Returns (date_start, date_end); for single date both are the same.
         """
+        _MONTH_NAMES = {
+            "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+            "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
+        }
+
+        def _parse_month_day_year(month_str: str, day_str: str, year_str: str) -> Optional[date]:
+            try:
+                m = _MONTH_NAMES.get(month_str.lower())
+                if not m:
+                    return None
+                y = int(year_str)
+                if y < 100:
+                    y = 2000 + y if y < 50 else 1900 + y
+                return date(y, m, int(day_str))
+            except (ValueError, TypeError, KeyError):
+                return None
+
+        # Month-name range: "between February 15 and March 5, 2026" or "from February 15 to March 5 2026"
+        month_range = re.search(
+            r"(?:between|from)\s+"
+            r"(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})\s+"
+            r"(?:and|to|-)\s+"
+            r"(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})"
+            r"(?:\s*,?\s*)?(\d{2,4})\b",
+            query_lower,
+            re.IGNORECASE,
+        )
+        if month_range:
+            d1 = _parse_month_day_year(month_range.group(1), month_range.group(2), month_range.group(5))
+            d2 = _parse_month_day_year(month_range.group(3), month_range.group(4), month_range.group(5))
+            if d1 and d2:
+                return (min(d1, d2), max(d1, d2))
+
+        # Single date with month name: "February 15, 2026" or "February 15 2026"
+        month_single = re.search(
+            r"\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:\s*,?\s*)?(\d{2,4})\b",
+            query_lower,
+            re.IGNORECASE,
+        )
+        if month_single:
+            d = _parse_month_day_year(month_single.group(1), month_single.group(2), month_single.group(3))
+            if d:
+                return d, d
+
         # Range first (so "between 2/1/2026 and 2/14/2026" is not parsed as single 2/1/2026)
         range_pat = re.search(
             r"(?:between|from)\s+(\d{1,2})/(\d{1,2})/(\d{2,4})\s+(?:and|to|-)\s+(\d{1,2})/(\d{1,2})/(\d{2,4})",

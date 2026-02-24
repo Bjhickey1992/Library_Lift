@@ -1,0 +1,378 @@
+
+================================================================================
+FULL RESULTS REPORT — 10 LIONSGATE DISTRIBUTOR PROMPTS
+================================================================================
+
+--------------------------------------------------------------------------------
+[1] We're pushing thrillers in the UK market this quarter. What library titles should we emphasize?
+--------------------------------------------------------------------------------
+Territory: UK | Count: 5
+Note: No exhibitions matched your filters exactly; showing exhibitions that mention your query (location, title, or description).
+Note: Exhibition filter relaxed to location/title/description match.
+
+  1. Detective Knight: Rogue (2022)
+     Director: Edward Drake | Genres: Action, Crime, Thriller
+     Relevance: 1.000
+     Exhibition: Crime 101 at Picturehouse Cinemas (London)
+     Why: "Detective Knight: Rogue" is an excellent fit for your UK thriller push this quarter, as it combines action, crime, and ...
+
+  2. Dark Seduction (2010)
+     Director: Walter Doehner | Genres: Drama, Thriller, Romance
+     Relevance: 1.000
+     Exhibition: Motel Destino at Northwest Film Forum (Seattle, WA)
+     Why: "Dark Seduction" aligns perfectly with your focus on thrillers in the UK market this quarter, featuring strong themes of...
+
+  3. The Strangers: Chapter 3 (2026)
+     Director: Renny Harlin | Genres: Horror, Thriller
+     Relevance: 0.979
+     Exhibition: Screen at Anthology Film Archives (New York, NY)
+     Why: "The Strangers: Chapter 3" is an excellent fit for your focus on thrillers in the UK market this quarter, as it expertly...
+
+  4. Hell Fest (2018)
+     Director: Gregory Plotkin | Genres: Horror, Thriller
+     Relevance: 0.927
+     Exhibition: It at Castro Theatre (San Francisco, CA)
+     Why: ""Hell Fest"" is an excellent recommendation for your push on thrillers in the UK market this quarter. As a horror-thril...
+
+  5. The Lincoln Lawyer (2011)
+     Director: Brad Furman | Genres: Crime, Drama, Thriller
+     Relevance: 0.820
+     Exhibition: Sicario at American Cinematheque (Los Angeles, CA)
+     Why: "The Lincoln Lawyer" is an excellent choice for your UK thriller push this quarter due to its compelling mix of crime, d...
+
+
+--------------------------------------------------------------------------------
+[2] Film Forum's audience skews art-house. Which of our titles would fit their programming best?
+--------------------------------------------------------------------------------
+Territory: None | Count: 5
+Note: No exhibitions matched your filters exactly; showing exhibitions that mention your query (location, title, or description).
+Note: No exact match to your filters; showing titles that match your wording in plot, themes, or viewer needs. Only recommendations with strong exhibition fit (≥0.5) are included.
+Note: Filters relaxed; matched your wording in plot, themes, or viewer needs. Exhibition filter relaxed to location/title/description match.
+
+  1. Dark Seduction (2010)
+     Director: Walter Doehner | Genres: Drama, Thriller, Romance
+     Relevance: 1.000
+     Exhibition: Motel Destino at Northwest Film Forum (Seattle, WA)
+     Why: "Dark Seduction" perfectly aligns with Film Forum's art-house audience, showcasing a moody and atmospheric narrative tha...
+
+  2. Leonard Cohen: I'm Your Man (2006)
+     Director: Lian Lunson | Genres: Documentary, Music
+     Relevance: 0.985
+     Exhibition: It's Never Over, Jeff Buckley at Picturehouse Cinemas (London)
+     Why: "Leonard Cohen: I'm Your Man" is an ideal choice for Film Forum's art-house audience, as it encapsulates the reflective ...
+
+  3. My Best Friend's Girl (2008)
+     Director: Howard Deutch | Genres: Romance, Comedy
+     Relevance: 0.984
+     Exhibition: Blonde Ambition at New Beverly Cinema (Los Angeles, CA)
+     Why: "My Best Friend's Girl" is recommended for Film Forum's art-house audience due to its thematic exploration of romantic m...
+
+  4. Hell Fest (2018)
+     Director: Gregory Plotkin | Genres: Horror, Thriller
+     Relevance: 0.979
+     Exhibition: Screen at Anthology Film Archives (New York, NY)
+     Why: "Hell Fest" is an excellent fit for Film Forum's art-house audience due to its unique blend of horror and psychological ...
+
+  5. Detective Knight: Rogue (2022)
+     Director: Edward Drake | Genres: Action, Crime, Thriller
+     Relevance: 0.747
+     Exhibition: The Chaser at La Cinémathèque française (Paris)
+     Why: "Detective Knight: Rogue" emerges as an intriguing fit for Film Forum's art-house audience, despite its action-packed na...
+
+
+--------------------------------------------------------------------------------
+[3] Show me library films that are the best thematic matches for what's playing in US theaters right now.
+--------------------------------------------------------------------------------
+Territory: US | Count: 5
+
+  1. Sicario: Day of the Soldado (2018)
+     Director: Stefano Sollima | Genres: Action, Crime, Thriller
+     Relevance: 1.000
+     Exhibition: Sicario at American Cinematheque (Los Angeles, CA)
+     Why: "Sicario: Day of the Soldado" is highly relevant for your query as it aligns with the intense action, gritty realism, an...
+
+  2. The Lincoln Lawyer (2011)
+     Director: Brad Furman | Genres: Crime, Drama, Thriller
+     Relevance: 0.949
+     Exhibition: A Time to Kill at Nitehawk Cinema (New York, NY)
+     Why: "The Lincoln Lawyer" aligns perfectly with your request for library films that resonate thematically and stylistically w...
+
+  3. Hell or High Water (2016)
+     Director: David Mackenzie | Genres: Western, Crime, Drama
+     Relevance: 0.859
+     Exhibition: Sicario at American Cinematheque (Los Angeles, CA)
+     Why: "Hell or High Water" is an excellent match for your query as it explores themes of economic struggle and moral ambiguity...
+
+  4. Hell Fest (2018)
+     Director: Gregory Plotkin | Genres: Horror, Thriller
+     Relevance: 0.682
+     Exhibition: Sinners at SFFILM (San Francisco, CA)
+     Why: ""Hell Fest"" (2018) is an excellent match for your query due to its seasonal Halloween setting and thematic focus on fe...
+
+  5. The Strangers: Chapter 1 (2024)
+     Director: Renny Harlin | Genres: Horror, Thriller
+     Relevance: 0.623
+     Exhibition: Motel Destino at Northwest Film Forum (Seattle, WA)
+     Why: "The Strangers: Chapter 1" is an ideal recommendation for your query, as it perfectly encapsulates the horror and thrill...
+
+
+--------------------------------------------------------------------------------
+[4] We have The Housemaid in theaters. What library titles should we pair with it for double features in France?
+--------------------------------------------------------------------------------
+Territory: FR | Count: 5
+Note: No exhibitions matched your filters exactly; showing exhibitions that mention your query (location, title, or description).
+Note: Exhibition filter relaxed to location/title/description match.
+
+  1. Sicario: Day of the Soldado (2018)
+     Director: Stefano Sollima | Genres: Action, Crime, Thriller
+     Relevance: 1.000
+     Exhibition: Sicario at American Cinematheque (Los Angeles, CA)
+     Why: "Sicario: Day of the Soldado" is an excellent pairing with "The Housemaid" due to its intense themes of moral ambiguity,...
+
+  2. Detective Knight: Rogue (2022)
+     Director: Edward Drake | Genres: Action, Crime, Thriller
+     Relevance: 0.867
+     Exhibition: Crime 101 at Picturehouse Cinemas (London)
+     Why: "Detective Knight: Rogue" is recommended as a pairing with "The Housemaid" due to its crime-thriller elements and explor...
+
+  3. Vidocq (2001)
+     Director: Pitof | Genres: Fantasy, Action, Thriller, Crime, Science Fiction, Mystery
+     Relevance: 0.840
+     Exhibition: The Lovers on the Bridge at Metrograph (New York, NY)
+     Why: I recommend "Vidocq" (2001) as a compelling pairing for "The Housemaid" due to its shared themes of obsession and the co...
+
+  4. Belleville Cop (2018)
+     Director: Rachid Bouchareb | Genres: Comedy, Crime
+     Relevance: 0.707
+     Exhibition: Jean de Florette at La Cinémathèque française (Paris)
+     Why: "Belleville Cop" is an excellent choice to pair with "The Housemaid" for a double feature in France due to its themes of...
+
+  5. Hell or High Water (2016)
+     Director: David Mackenzie | Genres: Western, Crime, Drama
+     Relevance: 0.669
+     Exhibition: Cold Sweat at FACETS (Chicago, IL)
+     Why: "Cold Sweat" is a fitting pairing for "The Housemaid" due to its shared themes of betrayal, survival, and moral complexi...
+
+
+--------------------------------------------------------------------------------
+[5] Female-led dramas from the 2010s that would play well in Canadian arthouse venues.
+--------------------------------------------------------------------------------
+Territory: CA | Count: 5
+Note: No exhibitions matched your filters exactly; showing exhibitions that mention your query (location, title, or description).
+Note: Exhibition filter relaxed to location/title/description match.
+
+  1. Down a Dark Hall (2018)
+     Director: Rodrigo Cortés | Genres: Horror, Mystery, Thriller, Fantasy, Drama
+     Relevance: 0.933
+     Exhibition: The Old Ways at Barbican Cinema (London)
+     Why: "Down a Dark Hall" is an ideal match for your request for female-led dramas from the 2010s, seamlessly blending elements...
+
+  2. Dark Seduction (2010)
+     Director: Walter Doehner | Genres: Drama, Thriller, Romance
+     Relevance: 0.926
+     Exhibition: Motel Destino at Northwest Film Forum (Seattle, WA)
+     Why: "Dark Seduction" is an exemplary fit for your request for female-led dramas from the 2010s, combining intense themes of ...
+
+  3. Love Beats Rhymes (2017)
+     Director: RZA | Genres: Drama, Music
+     Relevance: 0.877
+     Exhibition: To Be Free at Castro Theatre (San Francisco, CA)
+     Why: "Love Beats Rhymes" is an excellent match for your query as it is a female-led drama from the 2010s that beautifully enc...
+
+  4. Bombshell (2019)
+     Director: Jay Roach | Genres: Drama
+     Relevance: 0.801
+     Exhibition: Barbie at Forum des Images (Paris)
+     Why: "Bombshell" (2019) is an excellent fit for your query as it is a female-led drama that explores powerful themes like sex...
+
+  5. The Glass Castle (2017)
+     Director: Destin Daniel Cretton | Genres: Drama
+     Relevance: 0.796
+     Exhibition: Die My Love at FACETS (Chicago, IL)
+     Why: "The Glass Castle" (2017) is an excellent fit for your query for female-led dramas from the 2010s, as it delves into com...
+
+
+--------------------------------------------------------------------------------
+[6] Romance or drama titles that align with exhibitions between February 15 and March 5, 2026.
+--------------------------------------------------------------------------------
+Territory: None | Count: 5
+Note: No exhibitions matched your filters exactly; showing exhibitions that mention your query (location, title, or description).
+Note: Exhibition filter relaxed to location/title/description match.
+
+  1. Needle in a Timestack (2021)
+     Director: John Ridley | Genres: Drama, Romance, Science Fiction
+     Relevance: 0.909
+     Exhibition: Shuffle at AFS Cinema (Austin, TX)
+     Why: "Needle in a Timestack" is an excellent recommendation for your interest in romance and drama, set during the period of ...
+
+  2. The Lincoln Lawyer (2011)
+     Director: Brad Furman | Genres: Crime, Drama, Thriller
+     Relevance: 0.897
+     Exhibition: A Time to Kill at Nitehawk Cinema (New York, NY)
+     Why: "The Lincoln Lawyer" is an excellent recommendation based on your interest in romance and drama between February 15 and ...
+
+  3. O (2001)
+     Director: Tim Blake Nelson | Genres: Drama, Romance, Thriller
+     Relevance: 0.894
+     Exhibition: Othello at Curzon Cinemas (London)
+     Why: The film "O" (2001) is an excellent fit for your request for romantic or dramatic titles, particularly given its explora...
+
+  4. Dark Seduction (2010)
+     Director: Walter Doehner | Genres: Drama, Thriller, Romance
+     Relevance: 0.888
+     Exhibition: Motel Destino at Northwest Film Forum (Seattle, WA)
+     Why: "Dark Seduction" aligns perfectly with your request for romance or drama titles as it intricately weaves themes of obses...
+
+  5. Love in Taipei (2023)
+     Director: Arvin Chen | Genres: Romance, Comedy, Drama
+     Relevance: 0.768
+     Exhibition: Die My Love at FACETS (Chicago, IL)
+     Why: "Love in Taipei" (2023) is a fitting recommendation as it embodies the themes of self-discovery and romantic exploration...
+
+
+--------------------------------------------------------------------------------
+[7] Prioritize US exhibitions, but show library titles with strong thematic overlap to what's trending anywhere.
+--------------------------------------------------------------------------------
+Territory: None | Count: 5
+
+  1. Sicario: Day of the Soldado (2018)
+     Director: Stefano Sollima | Genres: Action, Crime, Thriller
+     Relevance: 1.000
+     Exhibition: Sicario at American Cinematheque (Los Angeles, CA)
+     Why: "Sicario: Day of the Soldado" is a fitting recommendation for your query as it intersects with trending themes of moral ...
+
+  2. The Lincoln Lawyer (2011)
+     Director: Brad Furman | Genres: Crime, Drama, Thriller
+     Relevance: 0.875
+     Exhibition: A Time to Kill at Nitehawk Cinema (New York, NY)
+     Why: "The Lincoln Lawyer" is a fitting recommendation as it embodies the gritty realism, moral ambiguity, and tense courtroom...
+
+  3. Detective Knight: Rogue (2022)
+     Director: Edward Drake | Genres: Action, Crime, Thriller
+     Relevance: 0.863
+     Exhibition: Crime 101 at Picturehouse Cinemas (London)
+     Why: "Detective Knight: Rogue" is an excellent fit for your query, as it embodies the action, crime, and thriller genres whil...
+
+  4. Needle in a Timestack (2021)
+     Director: John Ridley | Genres: Drama, Romance, Science Fiction
+     Relevance: 0.846
+     Exhibition: Shuffle at AFS Cinema (Austin, TX)
+     Why: "Needle in a Timestack" is an excellent choice for your query as it delves into the intricate themes of love, sacrifice,...
+
+  5. Pinocchio: A True Story (2021)
+     Director: Vasily Rovensky | Genres: Animation, Fantasy, Family
+     Relevance: 0.614
+     Exhibition: Fantastique at MK2 Cinemas (Paris)
+     Why: "Pinocchio: A True Story" matches your query for family-friendly films that delve into themes of self-discovery, adventu...
+
+
+--------------------------------------------------------------------------------
+[8] Thrillers and crime films that could work at Alamo Drafthouse or similar venues in Austin.
+--------------------------------------------------------------------------------
+Territory: None | Count: 5
+Note: No exhibitions matched your filters exactly; showing exhibitions that mention your query (location, title, or description).
+Note: Exhibition filter relaxed to location/title/description match.
+
+  1. Sicario: Day of the Soldado (2018)
+     Director: Stefano Sollima | Genres: Action, Crime, Thriller
+     Relevance: 1.000
+     Exhibition: Sicario at American Cinematheque (Los Angeles, CA)
+     Why: "Sicario: Day of the Soldado" aligns perfectly with your interest in thrillers and crime films due to its intense action...
+
+  2. Detective Knight: Rogue (2022)
+     Director: Edward Drake | Genres: Action, Crime, Thriller
+     Relevance: 0.954
+     Exhibition: Crime 101 at Picturehouse Cinemas (London)
+     Why: "Detective Knight: Rogue" is an excellent choice for your request for thrillers and crime films, as it delivers a gritty...
+
+  3. The Strangers: Chapter 1 (2024)
+     Director: Renny Harlin | Genres: Horror, Thriller
+     Relevance: 0.891
+     Exhibition: Screen at Anthology Film Archives (New York, NY)
+     Why: "The Strangers: Chapter 1" is an excellent fit for your interest in thrillers and crime films, particularly due to its i...
+
+  4. Backtrace (2018)
+     Director: Brian A. Miller | Genres: Crime, Action, Adventure, Thriller
+     Relevance: 0.885
+     Exhibition: Cold Sweat at FACETS (Chicago, IL)
+     Why: "Backtrace" is a fitting choice for your interest in thrillers and crime films, as it delivers a gritty narrative infuse...
+
+  5. Hell or High Water (2016)
+     Director: David Mackenzie | Genres: Western, Crime, Drama
+     Relevance: 0.705
+     Exhibition: Black Coal, Thin Ice at La Cinémathèque française (Paris)
+     Why: "Hell or High Water" is an excellent fit for your interest in thrillers and crime films, particularly with its gritty re...
+
+
+--------------------------------------------------------------------------------
+[9] Library films that match the aesthetic of Sicario—tense, morally complex—for the US market.
+--------------------------------------------------------------------------------
+Territory: None | Count: 5
+
+  1. Sicario: Day of the Soldado (2018)
+     Director: Stefano Sollima | Genres: Action, Crime, Thriller
+     Relevance: 1.000
+     Exhibition: Sicario at American Cinematheque (Los Angeles, CA)
+     Why: "Sicario: Day of the Soldado" is a perfect match for your query as it shares the same tense, morally complex aesthetic f...
+
+  2. Hell or High Water (2016)
+     Director: David Mackenzie | Genres: Western, Crime, Drama
+     Relevance: 0.882
+     Exhibition: Sicario at American Cinematheque (Los Angeles, CA)
+     Why: "Hell or High Water" is an ideal recommendation for your query due to its tense atmosphere and moral complexity, reminis...
+
+  3. Criminal (2016)
+     Director: Ariel Vromen | Genres: Action, Crime, Science Fiction
+     Relevance: 0.868
+     Exhibition: Sicario at American Cinematheque (Los Angeles, CA)
+     Why: "Criminal" is an excellent pick for viewers seeking a film that mirrors the tense, morally complex aesthetic of "Sicario...
+
+  4. American Assassin (2017)
+     Director: Michael Cuesta | Genres: Action, Adventure, Thriller
+     Relevance: 0.864
+     Exhibition: Sicario at American Cinematheque (Los Angeles, CA)
+     Why: "American Assassin" is an excellent match for your query due to its tense and morally complex narrative, which echoes th...
+
+  5. Traffik (2018)
+     Director: Deon Taylor | Genres: Thriller, Action
+     Relevance: 0.860
+     Exhibition: Sicario at American Cinematheque (Los Angeles, CA)
+     Why: "Traffik" is a compelling recommendation for your query due to its intense, morally complex narrative centered around su...
+
+
+--------------------------------------------------------------------------------
+[10] What library titles meet the need for psychological complexity and match the tone of what's playing at Northwest Film Forum in Seattle this month?
+--------------------------------------------------------------------------------
+Territory: None | Count: 5
+
+  1. Dark Seduction (2010)
+     Director: Walter Doehner | Genres: Drama, Thriller, Romance
+     Relevance: 0.869
+     Exhibition: Motel Destino at Northwest Film Forum (Seattle, WA)
+     Why: "Dark Seduction" is an excellent fit for your inquiry into psychologically complex films that echo the tone of current o...
+
+  2. Peacock (2010)
+     Director: Michael Lander | Genres: Mystery, Thriller, Drama
+     Relevance: 0.798
+     Exhibition: Safe at Northwest Film Forum (Seattle, WA)
+     Why: "Peacock" is an excellent fit for your interest in psychologically complex films and aligns with what's currently screen...
+
+  3. Miller's Girl (2024)
+     Director: Jade Halley Bartlett | Genres: Thriller, Drama, Romance
+     Relevance: 0.787
+     Exhibition: Motel Destino at Northwest Film Forum (Seattle, WA)
+     Why: "Miller's Girl" is an excellent match for your query seeking psychological complexity and a tone that resonates with the...
+
+  4. Exposed (2016)
+     Director: Gee Malik Linton | Genres: Drama, Crime, Thriller, Mystery
+     Relevance: 0.775
+     Exhibition: Motel Destino at Northwest Film Forum (Seattle, WA)
+     Why: "Exposed" (2016) is recommended for its psychological complexity and tense, introspective tone, aligning well with the c...
+
+  5. Mindcage (2022)
+     Director: Mauro Borrelli | Genres: Mystery, Thriller, Crime
+     Relevance: 0.767
+     Exhibition: Motel Destino at Northwest Film Forum (Seattle, WA)
+     Why: "Mindcage" is an excellent fit for your query due to its psychological complexity, featuring a gripping narrative that e...
+
+================================================================================
