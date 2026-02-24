@@ -175,13 +175,13 @@ class QueryIntentParser:
         raw_film = self._extract_specific_film(query_lower)
         intent.match_to_specific_film = self._normalize_film_title_for_matching(raw_film) if raw_film else None
         
-        # Adjust weights based on query focus
-        self._adjust_weights_from_query(intent, query_lower)
-        
         # Always use LLM for semantic intent extraction when available.
         # Filters are pulled dynamically from the meaning of the prompt, not just keywords.
         if self.openai_client:
             intent = self._llm_parse_query(query, intent, history_prompts=history_prompts)
+
+        # Adjust weights based on query focus (after LLM so thematic/director/etc focus is not overwritten)
+        self._adjust_weights_from_query(intent, query_lower)
 
         # Territory should only be applied if explicitly mentioned.
         # For refinements, allow territory mentioned in prior prompts to carry forward.
@@ -1026,6 +1026,13 @@ Return JSON with:
         elif intent.genres:
             intent.thematic_weight = 0.6
             intent.stylistic_weight = 0.3
+            intent.director_weight = 0.05
+            intent.writer_weight = 0.05
+            intent.cast_weight = 0.0
+        # Thematic-focused queries (e.g. "thematic matches", "best thematic fits", "match on themes")
+        elif any(phrase in query_lower for phrase in ["thematic", "themes", "theme match", "thematic match", "best thematic", "match on theme"]):
+            intent.thematic_weight = 0.6
+            intent.stylistic_weight = 0.25
             intent.director_weight = 0.05
             intent.writer_weight = 0.05
             intent.cast_weight = 0.0

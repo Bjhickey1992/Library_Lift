@@ -8,9 +8,7 @@ _app_root = Path(__file__).resolve().parent
 from chatbot_agent import ChatbotAgent
 
 PROMPTS = [
-    "female-led action films in the US",
-    "male-led comedies for the UK",
-    "give me 5 thrillers with female leads",
+    "show me the films in our library that are the best thematic matches for movies in theaters",
 ]
 
 def main():

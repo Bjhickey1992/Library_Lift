@@ -1847,6 +1847,23 @@ class MatchingAgent:
                 pass
         return text
     
+    def _has_thematic_data(self, film: Dict) -> bool:
+        """True if film has meaningful thematic/emotional/keyword content for overlap comparison."""
+        t = self._normalize_list_string(film.get("thematic_descriptors", ""))
+        e = str(film.get("emotional_tone", "") or "").strip()
+        k = str(film.get("keywords", "") or "").strip()
+        return bool(t and len(t) > 2) or bool(e and len(e) > 2) or bool(k and len(k) > 2)
+
+    def _has_stylistic_data(self, film: Dict) -> bool:
+        """True if film has meaningful stylistic descriptor content."""
+        s = self._normalize_list_string(film.get("stylistic_descriptors", ""))
+        return bool(s and len(s) > 2)
+
+    def _has_need_data(self, film: Dict) -> bool:
+        """True if film has meaningful need (viewer desires) content."""
+        n = str(film.get("need", "") or "").strip()
+        return bool(n and len(n) > 2)
+
     def _calculate_thematic_similarity(self, lib_film: Dict, ex_film: Dict) -> float:
         """Calculate thematic similarity based on themes, tone, and keywords using word overlap."""
         import re
@@ -2061,19 +2078,20 @@ class MatchingAgent:
             stylistic_weight = 0.2
             extra = {}
         
-        # Calculate weighted component match factors
+        # Calculate weighted component match factors (boost-only, no penalties)
         director_factor = 1.0 + (director_sim * director_weight * 0.5) if director_weight > 0 else 1.0
         writer_factor = 1.0 + (writer_sim * writer_weight * 0.5) if writer_weight > 0 else 1.0
         cast_factor = 1.0 + (cast_sim * cast_weight * 0.5) if cast_weight > 0 else 1.0
         thematic_factor = 1.0 + (thematic_sim * thematic_weight * 0.5) if thematic_weight > 0 else 1.0
         stylistic_factor = 1.0 + (stylistic_sim * stylistic_weight * 0.5) if stylistic_weight > 0 else 1.0
-        
-        # Extra column factors (only for columns present in both records)
+
+        # Extra columns: boost-only (emotional_tone, need, etc.)
         extra_factor = 1.0
         for col, w in extra.items():
-            if col in lib_film and col in ex_film and w > 0:
-                sim = self._column_similarity(lib_film, ex_film, col)
-                extra_factor *= 1.0 + (sim * w * 0.5)
+            if col not in lib_film or col not in ex_film or w <= 0:
+                continue
+            sim = self._column_similarity(lib_film, ex_film, col)
+            extra_factor *= 1.0 + (sim * w * 0.5)
         
         # Multiply base similarity by weighted component factors
         enhanced_sim = base_similarity * director_factor * writer_factor * cast_factor * thematic_factor * stylistic_factor * extra_factor
