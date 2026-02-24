@@ -1,0 +1,120 @@
+======================================================================
+AGGREGATED REPORT: 40 PROMPT TESTS
+======================================================================
+
+Total: 41 | Clean (no error, no fallback): 29 | With fallbacks: 12 | Failures: 0
+
+--- FALLBACKS / LLM DEFAULTS TO BASELINE ---
+  Prompt: "give me 5 library titles that match what's showing at Film Forum"
+  Fallbacks: ['exhibition_unstructured', 'exhibition_structured_yielded_0_then_unstructured']
+    Exhibition unstructured: No exhibitions matched your filters exactly; showing exhibitions that mention your query (location, title, or description).
+    Log: [ChatbotAgent] After library filters: 421 films (from 421 total); [ChatbotAgent] After exhibition filters: 0 exhibitions (from 312 total)
+
+  Prompt: "edgy art-house movies in Berlin"
+  Fallbacks: ['exhibition_unstructured', 'unstructured_fallback', 'exhibition_structured_yielded_0_then_unstructured']
+    Exhibition unstructured: No exhibitions matched your filters exactly; showing exhibitions that mention your query (location, title, or description).
+    Unstructured: No exact match to your filters; showing titles that match your wording in plot, themes, or viewer needs. Only recommendations with strong exhibition fit (>=0.5) are included.
+    Log: [ChatbotAgent] After library filters: 0 films (from 421 total); [ChatbotAgent] After exhibition filters: 0 exhibitions (from 312 total)
+
+  Prompt: "what library titles should we emphasize in the US this month?"
+  Fallbacks: ['exhibition_unstructured', 'exhibition_structured_yielded_0_then_unstructured']
+    Exhibition unstructured: No exhibitions matched your filters exactly; showing exhibitions that mention your query (location, title, or description).
+    Log: [ChatbotAgent] After library filters: 421 films (from 421 total); [ChatbotAgent] After exhibition filters: 0 exhibitions (from 312 total)
+
+  Prompt: "comedies to play in Mexico"
+  Fallbacks: ['exhibition_unstructured', 'exhibition_structured_yielded_0_then_unstructured']
+    Exhibition unstructured: No exhibitions matched your filters exactly; showing exhibitions that mention your query (location, title, or description).
+    Log: [ChatbotAgent] After library filters: 110 films (from 421 total); [ChatbotAgent] After exhibition filters: 0 exhibitions (from 312 total)
+
+  Prompt: "titles that match what's doing well at Metrograph"
+  Fallbacks: ['exhibition_unstructured', 'exhibition_structured_yielded_0_then_unstructured']
+    Exhibition unstructured: No exhibitions matched your filters exactly; showing exhibitions that mention your query (location, title, or description).
+    Log: [ChatbotAgent] After library filters: 421 films (from 421 total); [ChatbotAgent] After exhibition filters: 0 exhibitions (from 312 total)
+
+  Prompt: "library films that fit the programming at BAM"
+  Fallbacks: ['exhibition_unstructured', 'exhibition_structured_yielded_0_then_unstructured']
+    Exhibition unstructured: No exhibitions matched your filters exactly; showing exhibitions that mention your query (location, title, or description).
+    Log: [ChatbotAgent] After library filters: 421 films (from 421 total); [ChatbotAgent] After exhibition filters: 0 exhibitions (from 312 total)
+
+  Prompt: "recommendations for Alamo Drafthouse"
+  Fallbacks: ['venue_fallback']
+    Venue: No exhibitions found at Alamo Drafthouse; showing recommendations based on all venues.
+    Log: [ChatbotAgent] After library filters: 421 films (from 421 total); [ChatbotAgent] After exhibition filters: 0 exhibitions (from 312 total)
+
+  Prompt: "action films with exhibitions on 2026-03-10"
+  Fallbacks: ['exhibition_unstructured', 'exhibition_structured_yielded_0_then_unstructured']
+    Exhibition unstructured: No exhibitions matched your filters exactly; showing exhibitions that mention your query (location, title, or description).
+    Log: [ChatbotAgent] After library filters: 122 films (from 421 total); [ChatbotAgent] After exhibition filters: 0 exhibitions (from 312 total)
+
+  Prompt: "films similar to Inception for current exhibitions"
+  Fallbacks: ['exhibition_unstructured', 'unstructured_fallback', 'exhibition_structured_yielded_0_then_unstructured']
+    Exhibition unstructured: No exhibitions matched your filters exactly; showing exhibitions that mention your query (location, title, or description).
+    Unstructured: No exact match to your filters; showing titles that match your wording in plot, themes, or viewer needs. Only recommendations with strong exhibition fit (>=0.5) are included.
+    Log: [ChatbotAgent] After library filters: 0 films (from 421 total); [ChatbotAgent] After exhibition filters: 0 exhibitions (from 312 total)
+
+  Prompt: "library titles relevant to The Housemaid"
+  Fallbacks: ['exhibition_unstructured', 'exhibition_structured_yielded_0_then_unstructured']
+    Exhibition unstructured: No exhibitions matched your filters exactly; showing exhibitions that mention your query (location, title, or description).
+    Log: [ChatbotAgent] After library filters: 421 films (from 421 total); [ChatbotAgent] After exhibition filters: 0 exhibitions (from 312 total)
+
+  Prompt: "female director films in the UK"
+  Fallbacks: ['exhibition_unstructured', 'unstructured_fallback', 'exhibition_structured_yielded_0_then_unstructured']
+    Exhibition unstructured: No exhibitions matched your filters exactly; showing exhibitions that mention your query (location, title, or description).
+    Unstructured: No exact match to your filters; showing titles that match your wording in plot, themes, or viewer needs. Only recommendations with strong exhibition fit (>=0.5) are included.
+    Log: [ChatbotAgent] After library filters: 0 films (from 421 total); [ChatbotAgent] After exhibition filters: 0 exhibitions (from 312 total)
+
+  Prompt: "comedies from the 2010s for Canada"
+  Fallbacks: ['exhibition_unstructured', 'exhibition_structured_yielded_0_then_unstructured']
+    Exhibition unstructured: No exhibitions matched your filters exactly; showing exhibitions that mention your query (location, title, or description).
+    Log: [ChatbotAgent] After library filters: 51 films (from 421 total); [ChatbotAgent] After exhibition filters: 0 exhibitions (from 312 total)
+
+
+--- WHY FALLBACKS OCCURRED (summary) ---
+  • Exhibition: structured filters (territory/city/date) matched 0 → matched query terms in location/title/description
+  • Library: no films matched structured filters → matched wording in plot/themes/need
+  • Venue: no exhibitions at requested venue → removed venue filter
+
+--- PROMPT LIST ---
+  1. [OK] show me comedies to highlight in france
+  2. [OK] thrillers in Paris this month
+  3. [FALLBACK] give me 5 library titles that match what's showing at Film Forum
+  4. [OK] romance films in the UK
+  5. [OK] documentaries playing in Canada
+  6. [OK] female-led action films in the US
+  7. [OK] what's trending in theaters right now in Austin
+  8. [OK] films similar to Sicario for the US market
+  9. [OK] comedies and dramas playing on 2026-03-15
+  10. [FALLBACK] edgy art-house movies in Berlin
+  11. [FALLBACK] what library titles should we emphasize in the US this month?
+  12. [OK] give me 7 thrillers for the UK
+  13. [FALLBACK] comedies to play in Mexico
+  14. [OK] drama recommendations for Canada
+  15. [OK] action films in France
+  16. [OK] what's showing in London?
+  17. [OK] romance films in New York
+  18. [OK] comedies and dramas in Seattle this week
+  19. [OK] documentaries in San Francisco
+  20. [OK] thrillers in Chicago
+  21. [FALLBACK] titles that match what's doing well at Metrograph
+  22. [FALLBACK] library films that fit the programming at BAM
+  23. [FALLBACK] recommendations for Alamo Drafthouse
+  24. [OK] what's trending in theaters in the US right now
+  25. [OK] thrillers playing this week in the UK
+  26. [OK] comedies in Austin this month
+  27. [OK] romance and drama playing on 2026-02-28
+  28. [FALLBACK] action films with exhibitions on 2026-03-10
+  29. [OK] give me 10 titles playing between 2026-02-15 and 2026-02-25
+  30. [FALLBACK] films similar to Inception for current exhibitions
+  31. [FALLBACK] library titles relevant to The Housemaid
+  32. [OK] something like Bone Temple in the US
+  33. [OK] horror and thriller in the UK
+  34. [OK] sci-fi and drama for France
+  35. [OK] just comedies, 5 titles
+  36. [OK] male-led action in the US
+  37. [FALLBACK] female director films in the UK
+  38. [FALLBACK] comedies from the 2010s for Canada
+  39. [OK] prioritize US exhibitions but show others too
+  40. [OK] narrow to Paris only
+  41. [OK] only documentaries
+
+======================================================================

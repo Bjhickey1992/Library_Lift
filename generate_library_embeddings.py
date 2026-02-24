@@ -48,6 +48,8 @@ for _, row in lib_df.iterrows():
         parts.append(f"Production Design: {row['production_designers']}")
     if pd.notna(row.get("cast")):
         parts.append(f"Starring: {row['cast']}")
+    if pd.notna(row.get("lead_gender")):
+        parts.append(f"Lead actor gender: {row['lead_gender']}")
     if pd.notna(row.get("genres")):
         parts.append(f"Genres: {row['genres']}")
     if pd.notna(row.get("keywords")):

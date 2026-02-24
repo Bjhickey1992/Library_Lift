@@ -118,8 +118,8 @@ def main():
         print(f"Error initializing TMDb client: {e}")
         return
     
-    # Enrich library file
-    library_file = "universal_pictures_library.xlsx"
+    # Enrich library file (Lionsgate; use same name as chatbot_agent / generate_library_embeddings)
+    library_file = "lionsgate_library.xlsx"
     if os.path.exists(library_file):
         print(f"\n{'='*60}")
         print(f"Enriching library file: {library_file}")
