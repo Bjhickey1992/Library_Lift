@@ -332,6 +332,11 @@ class QueryIntentParser:
         _pronoun_or_time = ("it", "that", "this", "this month", "that month", "this week", "that week")
         if intent.match_to_specific_film and intent.match_to_specific_film.strip().lower() in _pronoun_or_time:
             intent.match_to_specific_film = None
+        # Reject time/date phrases wrongly parsed as film title (e.g. "what's playing in march")
+        if intent.match_to_specific_film:
+            mf = intent.match_to_specific_film.strip().lower()
+            if re.search(r"playing\s+in\s+\w+|^in\s+(january|february|march|april|may|june|july|august|september|october|november|december)\b", mf):
+                intent.match_to_specific_film = None
         if intent.venue and intent.venue.strip().lower() in _pronoun_or_time:
             # Restore venue from regex (e.g. "Film Forum" from "at Film Forum this month")
             intent.venue = self._extract_venue(query_lower)
@@ -762,6 +767,35 @@ Return JSON with:
                 return d, d
             except ValueError:
                 pass
+
+        # "in march", "playing in march", "what's playing in March" -> full month range
+        # Year: next occurrence (this year if month >= current month, else next year)
+        in_month = re.search(
+            r"\b(?:in|during|for)\s+(january|february|march|april|may|june|july|august|september|october|november|december)\b(?:\s+(\d{4}))?",
+            query_lower,
+            re.IGNORECASE,
+        )
+        if in_month:
+            month_name = in_month.group(1).lower()
+            m = _MONTH_NAMES.get(month_name)
+            if m:
+                now = date.today()
+                if in_month.group(2):
+                    y = int(in_month.group(2))
+                else:
+                    # Next occurrence: if we're before or in that month, use this year; else next year
+                    if now.month < m or (now.month == m and now.day < 28):
+                        y = now.year
+                    else:
+                        y = now.year + 1
+                try:
+                    from calendar import monthrange
+                    _, last_day = monthrange(y, m)
+                    d_start = date(y, m, 1)
+                    d_end = date(y, m, last_day)
+                    return d_start, d_end
+                except (ValueError, TypeError):
+                    pass
         return None, None
 
     def _extract_year_filters(self, query_lower: str) -> Tuple[Optional[int], Optional[int], Optional[List[str]]]:

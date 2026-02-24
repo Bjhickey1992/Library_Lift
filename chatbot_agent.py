@@ -1241,7 +1241,8 @@ class ChatbotAgent:
 
         # Time period filter: skip when matching to a specific film. We use all exhibitions
         # of that film; "this month" etc. is about when we promote, not when they screen.
-        if intent.time_period and not intent.match_to_specific_film:
+        # Also skip when user specified a concrete exhibition date (e.g. "in march") - that is more specific.
+        if intent.time_period and not intent.match_to_specific_film and not (intent.exhibition_date_start or intent.exhibition_date_end):
             today = datetime.now().date()
             if intent.time_period == "now" or intent.time_period == "week":
                 end_date = today + timedelta(days=7)
@@ -1287,20 +1288,34 @@ class ChatbotAgent:
             end = intent.exhibition_date_end or intent.exhibition_date_start
             if start and end:
 
-                def _has_date_in_exhibition_range(dates_str: str) -> bool:
+                def _has_date_in_exhibition_range(dates_str: str, start_d: date, end_d: date) -> bool:
                     if pd.isna(dates_str) or not dates_str:
                         return False
                     for date_str in str(dates_str).split(","):
                         date_str = date_str.strip()
                         try:
                             date_obj = datetime.strptime(date_str[:10], "%Y-%m-%d").date()
-                            if start <= date_obj <= end:
+                            if start_d <= date_obj <= end_d:
                                 return True
                         except (ValueError, AttributeError):
                             continue
                     return False
 
-                filtered_df = filtered_df[filtered_df["scheduled_dates"].apply(_has_date_in_exhibition_range)]
+                df_before_date = filtered_df
+                filtered_df = filtered_df[
+                    filtered_df["scheduled_dates"].apply(lambda s: _has_date_in_exhibition_range(s, start, end))
+                ]
+
+                # Fallback: when date range yields 0 and range is a single month, retry with +1 year
+                # (exhibition data often has future dates; "in March" in Feb may mean next year's March)
+                if len(filtered_df) == 0 and len(df_before_date) > 0 and start.month == end.month:
+                    start_next = date(start.year + 1, start.month, start.day)
+                    end_next = date(end.year + 1, end.month, end.day)
+                    filtered_df = df_before_date[
+                        df_before_date["scheduled_dates"].apply(
+                            lambda s: _has_date_in_exhibition_range(s, start_next, end_next)
+                        )
+                    ]
         
         # Dynamic column_filters (any exhibition column)
         # Skip when it would zero out results and user asked for a specific venue (preserve venue matches)
