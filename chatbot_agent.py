@@ -1327,9 +1327,14 @@ class ChatbotAgent:
                     ]
         
         # Dynamic column_filters (any exhibition column)
+        # When library-focused (apply_time_period_to_exhibitions=False), do NOT apply release_year
+        # to exhibitions—year filters are for library titles only in that context.
+        ex_column_filters = intent.column_filters
+        if ex_column_filters and not getattr(intent, "apply_time_period_to_exhibitions", True):
+            ex_column_filters = {k: v for k, v in ex_column_filters.items() if k.lower() != "release_year"}
         # Skip when it would zero out results and user asked for a specific venue (preserve venue matches)
-        if intent.column_filters:
-            after_cf = self._apply_column_filters_to_df(filtered_df, intent.column_filters)
+        if ex_column_filters:
+            after_cf = self._apply_column_filters_to_df(filtered_df, ex_column_filters)
             if len(after_cf) == 0 and len(filtered_df) > 0 and getattr(intent, "venue", None):
                 pass  # Keep filtered_df; don't apply column_filters that would wipe venue results
             else:
