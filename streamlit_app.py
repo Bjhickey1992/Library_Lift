@@ -895,6 +895,7 @@ if not st.session_state.get("initialized", False):
 st.markdown("""
 <div class="header-container">
     <p class="header-meta">Library Lift · Copyright Barbara J Hickey 2026</p>
+    <p class="header-meta">Library Lift is a prototype made for illustrative purposes only using strictly public data.</p>
     <h1 class="logo-text">Library Lift</h1>
     <p class="tagline">Recommendations for monetizing library content</p>
     <p class="purpose">Match your library titles to what&apos;s playing in theaters and get AI-backed recommendations.</p>
