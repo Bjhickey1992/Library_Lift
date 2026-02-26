@@ -53,11 +53,13 @@ class QueryIntent:
     exhibition_date_start: Optional[date] = None
     exhibition_date_end: Optional[date] = None
 
-    # Library vs exhibition date scope: when user asks for "relevant", "meaningful", "topical"
-    # library titles, date/year filters apply to LIBRARY only; do not restrict exhibitions by time.
-    # When user asks for "playing", "being shown", "exhibited" from a period, filter exhibitions.
-    filter_year_to_exhibition: bool = False  # True = filter exhibitions by release_year when year_start/year_end set
-    apply_time_period_to_exhibitions: bool = True  # False = skip time_period on exhibitions (library-focused relevance)
+    # Library vs exhibition scope: which dataset do content filters (genre, year) apply to?
+    # Library-focused ("relevant", "promote", "meaningful"): filters apply to LIBRARY only; exhibitions = full market.
+    # Exhibition-focused ("playing", "in theaters", "showing"): filters apply to EXHIBITIONS; narrow the market.
+    filter_year_to_exhibition: bool = False  # True = filter exhibitions by release_year
+    filter_genre_to_exhibition: bool = False  # True = filter exhibitions by genre (e.g. "thrillers playing")
+    apply_time_period_to_exhibitions: bool = True  # False = skip time_period on exhibitions (library-focused)
+    apply_content_filters_to_exhibitions: bool = False  # True = apply genre/year from column_filters to exhibitions
 
     # Territory
     territory: Optional[str] = None
@@ -302,8 +304,12 @@ class QueryIntentParser:
                 intent.exhibition_film_type = previous_intent.exhibition_film_type
             if not getattr(intent, "filter_year_to_exhibition", False) and getattr(previous_intent, "filter_year_to_exhibition", False):
                 intent.filter_year_to_exhibition = previous_intent.filter_year_to_exhibition
+            if not getattr(intent, "filter_genre_to_exhibition", False) and getattr(previous_intent, "filter_genre_to_exhibition", False):
+                intent.filter_genre_to_exhibition = previous_intent.filter_genre_to_exhibition
             if getattr(previous_intent, "apply_time_period_to_exhibitions", True) is False:
                 intent.apply_time_period_to_exhibitions = False
+            if getattr(previous_intent, "apply_content_filters_to_exhibitions", False):
+                intent.apply_content_filters_to_exhibitions = True
 
             # Lists of entities (names) — carry forward if not set this turn
             if not intent.specific_directors:
@@ -350,6 +356,13 @@ class QueryIntentParser:
         if intent.venue and intent.venue.strip().lower() in _pronoun_or_time:
             # Restore venue from regex (e.g. "Film Forum" from "at Film Forum this month")
             intent.venue = self._extract_venue(query_lower)
+        # Validate venue: reject LLM hallucination of query fragments as venue/city
+        if intent.venue and not self._is_valid_venue(intent.venue):
+            intent.venue = None
+        if getattr(intent, "venue_preferences", None):
+            intent.venue_preferences = [v for v in intent.venue_preferences if v and self._is_valid_venue(str(v))]
+            if not intent.venue_preferences:
+                intent.venue_preferences = None
 
         # Venue vs. film: never treat known venue names as match_to_specific_film (they filter exhibition location, not title)
         _known_venue_names = frozenset(
@@ -386,32 +399,45 @@ class QueryIntentParser:
                     intent.year_start = None
                     intent.year_end = None
 
-        # Library vs exhibition date scope: distinguish when to filter exhibitions vs library by time
-        self._apply_library_exhibition_date_scope(intent, query_lower)
+        # Library vs exhibition scope: route content filters (genre, year, time) to the correct dataset
+        self._apply_library_exhibition_filter_scope(intent, query_lower)
         
         return intent
 
-    def _apply_library_exhibition_date_scope(self, intent: QueryIntent, query_lower: str) -> None:
+    def _apply_library_exhibition_filter_scope(self, intent: QueryIntent, query_lower: str) -> None:
         """
-        Set filter_year_to_exhibition and apply_time_period_to_exhibitions based on query context.
-        - "relevant", "meaningful", "topical", etc. -> library-focused: date filters apply to library only;
-          do NOT restrict exhibitions by time_period (skip "right now" etc. on exhibitions).
-        - "playing", "being shown", "exhibited" + year/decade -> exhibition-focused: filter exhibitions by release_year.
+        Route filters to library vs exhibitions based on query context.
+
+        Library-focused: "relevant", "meaningful", "promote", "emphasize" — filters apply to LIBRARY
+        only; exhibitions = full market.
+
+        Exhibition-focused: "playing", "in theaters", "showing" — user describes the exhibition market;
+        filters apply to EXHIBITIONS to narrow what we match against.
         """
-        # Library-focused: user cares about library titles being relevant/meaningful; time filters = library
+        # Library-focused: filters describe library titles the user wants; don't filter exhibitions
         library_focused_phrases = [
             "relevant", "meaningful", "topical", "resonate", "timely", "resonant",
             "meaningful to", "topical for", "relevant to", "resonant with", "speak to",
+            "promote", "emphasize", "highlight", "we can", "we should", "library titles",
         ]
-        if any(p in query_lower for p in library_focused_phrases):
-            intent.apply_time_period_to_exhibitions = False
+        library_focused = any(p in query_lower for p in library_focused_phrases)
 
-        # Exhibition-focused: user asks for films playing/exhibited from a certain period
+        # Exhibition-focused: user describes what's playing/exhibited; filter exhibitions by that
         exhibition_focused_phrases = [
-            "playing from", "being shown", "exhibited", "screening from", "in theaters from",
-            "playing in", "shown in", "exhibited in", "showing from", "films playing",
+            "playing", "in theaters", "being shown", "exhibited", "screening",
+            "showing", "what's playing", "currently playing", "playing now",
+            "playing from", "playing in", "shown in", "exhibited in", "showing from",
+            "films playing", "titles playing", "that are playing",
         ]
-        if any(p in query_lower for p in exhibition_focused_phrases):
+        exhibition_focused = any(p in query_lower for p in exhibition_focused_phrases)
+
+        if library_focused and not exhibition_focused:
+            intent.apply_time_period_to_exhibitions = False
+            intent.apply_content_filters_to_exhibitions = False
+        elif exhibition_focused:
+            intent.apply_content_filters_to_exhibitions = True
+            if intent.genres:
+                intent.filter_genre_to_exhibition = True
             if intent.year_start is not None or intent.year_end is not None:
                 intent.filter_year_to_exhibition = True
 
@@ -591,6 +617,38 @@ Return JSON with:
             if re.search(pattern, query_lower):
                 return canonical
         return None
+
+    def _is_valid_venue(self, venue_val: str) -> bool:
+        """Validate that a venue string from the LLM looks like a real cinema or city name, not a query fragment."""
+        v = venue_val.strip().lower()
+        if not v or len(v) < 2:
+            return False
+        # Reject time phrases
+        if v in ("this month", "that month", "this week", "that week", "now", "right now"):
+            return False
+        # Reject if contains genre words (user asking for "thrillers" etc., not a venue)
+        genre_words = ["thriller", "comed", "horror", "drama", "sci-fi", "action", "romance", "documentary", "genre"]
+        if any(g in v for g in genre_words):
+            return False
+        # Reject if contains relevance/descriptive words (query fragment, not venue)
+        non_venue_words = ["relevant", "meaningful", "topical", "resonate", "timely", "resonant", "from the", "right"]
+        if any(w in v for w in non_venue_words):
+            return False
+        # Reject if contains decade/year references (2000s, 90s, 19xx, 20xx)
+        if re.search(r"\b(19|20)\d{2}s?\b|\b\d{2}s\b", v):
+            return False
+        # Reject very long strings (likely query fragments; real venues/cities are typically 1-4 words)
+        words = v.split()
+        if len(words) > 5:
+            return False
+        # Known venues always pass
+        known = ["film forum", "metrograph", "bam", "riff", "alamo", "landmark", "angelika", "cinematheque", "laemmle"]
+        if any(k in v for k in known):
+            return True
+        # Short, plausible venue/city names (no digits, reasonable length)
+        if re.search(r"\d", v):
+            return False
+        return True
 
     def _extract_venue(self, query_lower: str) -> Optional[str]:
         """Extract venue name when user asks for exhibitions at a specific venue (e.g. 'Film Forum', 'at the Ritz').
@@ -1239,7 +1297,7 @@ CRITICAL RULES:
 
 6. territory: Only if user explicitly mentions US, UK, FR, CA, MX.
 
-7. venue: When user asks for a specific venue (e.g. "Film Forum", "whatever is doing well at Film Forum"), set to the venue name string. Otherwise null.
+7. venue: ONLY when the user explicitly names a cinema/theater (e.g. "Film Forum", "Metrograph", "BAM") OR a city (e.g. "Los Angeles", "Austin", "New York"). Location data format is "Theater Name (City, State)". Use null when no venue or city is mentioned. Do NOT set venue from query fragments, genre words ("thrillers", "comedies"), relevance words ("relevant", "meaningful"), decade phrases ("2000s", "90s"), or descriptive text. Examples: "thrillers from the 2000s are relevant" -> venue: null; "at Film Forum" -> venue: "Film Forum"; "in Austin" -> venue: "Austin".
 
 8. time_period: "month"|"week"|"now" only if user says "this month", "right now", "this week".
    IMPORTANT: Do NOT set time_period when the user asks for library titles that are "relevant", "meaningful", or "topical" (e.g. "thrillers from the 2000s that are relevant right now"). In that context "right now" means topical/relevant, not exhibition schedule—date filters apply to library only.
@@ -1255,6 +1313,11 @@ CRITICAL RULES:
 9. TERRITORY/VENUE MODE: When the user wants to "prioritize" or "prefer" a place but still see others, set territory_mode or venue_mode to "soft". When they want only that place, use "hard". When multiple places are mentioned (e.g. "US and Film Forum"), set territory_preferences or venue_preferences as a list (first = most preferred).
 
 10. exhibition_film_type: When the user asks for only "re-releases", "new releases", or "documentaries" in exhibition, set to "re_release", "new_release", or "documentary". Otherwise null.
+
+11. LIBRARY vs EXHIBITION FILTER CONTEXT (critical for routing):
+    - LIBRARY filters: When user wants library titles to promote/emphasize ("relevant", "meaningful", "we can promote", "thrillers that resonate") — genres and year_start/year_end describe which LIBRARY titles to surface. The exhibition market is NOT filtered by these.
+    - EXHIBITION filters: When user describes what's IN the market ("thrillers playing", "comedies in theaters", "what's showing", "films exhibited from the 90s") — genres and year describe which EXHIBITIONS to match against. Extract genres and year normally; downstream logic routes them.
+    Examples: "thrillers playing currently" → genres: ["thriller"] (exhibition context). "thrillers from the 2000s that are relevant" → genres: ["thriller"], year_start: 2000, year_end: 2009 (library context). "titles matching thrillers playing" → genres: ["thriller"] (exhibition context).
 
 Return ONLY valid JSON. No markdown, no explanation."""
 
@@ -1274,7 +1337,7 @@ Return JSON with:
 - specific_directors, specific_writers, specific_actors (list or null)
 - match_to_specific_film (short searchable film title only, or null; use null when user describes elements/vibes and set film_descriptor_terms instead)
 - film_descriptor_terms (list or null): key terms when user describes elements/vibes (e.g. ["bridge", "lovers"], ["late-night", "european", "art house"]); null when a specific film is named
-- venue (string or null): venue name when user asks for a specific venue (e.g. "Film Forum")
+- venue (string or null): ONLY when user names a cinema (e.g. Film Forum, Metrograph) or city (e.g. Austin, Los Angeles). Use null when no venue/city is mentioned. Never use genre words, "relevant", decades, or query fragments.
 - territory (US/UK/FR/CA/MX or null; only if explicitly mentioned)
 - time_period ("month"|"week"|"now" or null)
 - exhibition_date_start, exhibition_date_end (ISO "YYYY-MM-DD" or null; when user says "playing on 2/14/2026" or "between 2/1 and 2/14/2026")
@@ -1379,9 +1442,10 @@ Return ONLY valid JSON."""
                 base_intent.film_descriptor_terms = [str(t).strip() for t in data["film_descriptor_terms"] if t and str(t).strip()]
             if "venue" in data and isinstance(data["venue"], str) and data["venue"].strip():
                 venue_val = data["venue"].strip()
-                # Don't let LLM overwrite with a time phrase (e.g. "this month" from "at Film Forum this month")
-                if venue_val.lower() not in ("this month", "that month", "this week", "that week", "now"):
+                # Validate: reject time phrases, query fragments, genre/relevance/decade words
+                if self._is_valid_venue(venue_val):
                     base_intent.venue = venue_val
+                # else: leave venue as None (regex result or previous intent)
             if "exclude_genres" in data and isinstance(data["exclude_genres"], list):
                 base_intent.exclude_genres = [str(g).strip().lower() for g in data["exclude_genres"] if g and str(g).strip()]
             if "exclude_film" in data and isinstance(data["exclude_film"], str) and data["exclude_film"].strip():

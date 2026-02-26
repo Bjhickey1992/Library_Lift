@@ -1246,6 +1246,17 @@ class ChatbotAgent:
             if intent.year_end is not None:
                 filtered_df = filtered_df[filtered_df["release_year"].notna() & (filtered_df["release_year"] <= intent.year_end)]
 
+        # Exhibition genre filter: when user asks for "thrillers playing", "comedies in theaters", filter exhibitions by genre
+        if getattr(intent, "filter_genre_to_exhibition", False) and intent.genres and "genres" in filtered_df.columns:
+            genre_aliases = {"sci-fi": ["sci-fi", "science fiction"], "science fiction": ["sci-fi", "science fiction"]}
+            pattern_parts = []
+            for g in intent.genres:
+                g_lower = (g or "").strip().lower()
+                pattern_parts.extend(genre_aliases.get(g_lower, [g_lower]))
+            pattern = "|".join(re.escape(p) for p in set(pattern_parts))
+            genre_mask = filtered_df["genres"].astype(str).str.lower()
+            filtered_df = filtered_df[genre_mask.str.contains(pattern, na=False)]
+
         # Time period filter: skip when matching to a specific film. We use all exhibitions
         # of that film; "this month" etc. is about when we promote, not when they screen.
         # Also skip when user specified a concrete exhibition date (e.g. "in march") - that is more specific.
@@ -1327,11 +1338,9 @@ class ChatbotAgent:
                     ]
         
         # Dynamic column_filters (any exhibition column)
-        # When library-focused (apply_time_period_to_exhibitions=False), do NOT apply release_year
-        # to exhibitions—year filters are for library titles only in that context.
-        ex_column_filters = intent.column_filters
-        if ex_column_filters and not getattr(intent, "apply_time_period_to_exhibitions", True):
-            ex_column_filters = {k: v for k, v in ex_column_filters.items() if k.lower() != "release_year"}
+        # Apply only when exhibition-focused ("playing", "in theaters")—user describes the exhibition market.
+        # When library-focused ("relevant", "promote"), content filters apply to library only; use all exhibitions.
+        ex_column_filters = intent.column_filters if getattr(intent, "apply_content_filters_to_exhibitions", False) else None
         # Skip when it would zero out results and user asked for a specific venue (preserve venue matches)
         if ex_column_filters:
             after_cf = self._apply_column_filters_to_df(filtered_df, ex_column_filters)
