@@ -53,6 +53,12 @@ class QueryIntent:
     exhibition_date_start: Optional[date] = None
     exhibition_date_end: Optional[date] = None
 
+    # Library vs exhibition date scope: when user asks for "relevant", "meaningful", "topical"
+    # library titles, date/year filters apply to LIBRARY only; do not restrict exhibitions by time.
+    # When user asks for "playing", "being shown", "exhibited" from a period, filter exhibitions.
+    filter_year_to_exhibition: bool = False  # True = filter exhibitions by release_year when year_start/year_end set
+    apply_time_period_to_exhibitions: bool = True  # False = skip time_period on exhibitions (library-focused relevance)
+
     # Territory
     territory: Optional[str] = None
     # City (when user asks for a specific city, only exhibitions in that city)
@@ -294,6 +300,10 @@ class QueryIntentParser:
                 intent.venue_preferences = previous_intent.venue_preferences
             if not getattr(intent, "exhibition_film_type", None) and getattr(previous_intent, "exhibition_film_type", None):
                 intent.exhibition_film_type = previous_intent.exhibition_film_type
+            if not getattr(intent, "filter_year_to_exhibition", False) and getattr(previous_intent, "filter_year_to_exhibition", False):
+                intent.filter_year_to_exhibition = previous_intent.filter_year_to_exhibition
+            if getattr(previous_intent, "apply_time_period_to_exhibitions", True) is False:
+                intent.apply_time_period_to_exhibitions = False
 
             # Lists of entities (names) — carry forward if not set this turn
             if not intent.specific_directors:
@@ -375,8 +385,35 @@ class QueryIntentParser:
                 if intent.year_start >= ex_min and intent.year_end >= ex_min:
                     intent.year_start = None
                     intent.year_end = None
+
+        # Library vs exhibition date scope: distinguish when to filter exhibitions vs library by time
+        self._apply_library_exhibition_date_scope(intent, query_lower)
         
         return intent
+
+    def _apply_library_exhibition_date_scope(self, intent: QueryIntent, query_lower: str) -> None:
+        """
+        Set filter_year_to_exhibition and apply_time_period_to_exhibitions based on query context.
+        - "relevant", "meaningful", "topical", etc. -> library-focused: date filters apply to library only;
+          do NOT restrict exhibitions by time_period (skip "right now" etc. on exhibitions).
+        - "playing", "being shown", "exhibited" + year/decade -> exhibition-focused: filter exhibitions by release_year.
+        """
+        # Library-focused: user cares about library titles being relevant/meaningful; time filters = library
+        library_focused_phrases = [
+            "relevant", "meaningful", "topical", "resonate", "timely", "resonant",
+            "meaningful to", "topical for", "relevant to", "resonant with", "speak to",
+        ]
+        if any(p in query_lower for p in library_focused_phrases):
+            intent.apply_time_period_to_exhibitions = False
+
+        # Exhibition-focused: user asks for films playing/exhibited from a certain period
+        exhibition_focused_phrases = [
+            "playing from", "being shown", "exhibited", "screening from", "in theaters from",
+            "playing in", "shown in", "exhibited in", "showing from", "films playing",
+        ]
+        if any(p in query_lower for p in exhibition_focused_phrases):
+            if intent.year_start is not None or intent.year_end is not None:
+                intent.filter_year_to_exhibition = True
 
     def _classify_new_search(
         self, query: str, *, history_prompts: Optional[List[str]] = None
@@ -799,12 +836,24 @@ Return JSON with:
         return None, None
 
     def _extract_year_filters(self, query_lower: str) -> Tuple[Optional[int], Optional[int], Optional[List[str]]]:
-        """Extract year range and decade filters."""
+        """Extract year range and decade filters. Decades: 80s=1980-89, 90s=1990-99, 2000s=2000-09, etc."""
         year_start = None
         year_end = None
         decades = []
-        
-        # Extract decades (80s, 90s, etc.) -> 1980-1989, 1990-1999; 00s, 10s -> 2000-2009, 2010-2019
+
+        # Extract full-century decades (2000s, 1990s, 2010s, etc.) -> 2000-2009, 1990-1999, 2010-2019
+        full_decade_pattern = r'\b(19\d{2}|20\d{2})s\b'
+        for match in re.finditer(full_decade_pattern, query_lower):
+            century_decade = int(match.group(1))
+            start = century_decade
+            end = start + 9
+            decades.append(f"{century_decade}s")
+            if year_start is None or start < year_start:
+                year_start = start
+            if year_end is None or end > year_end:
+                year_end = end
+
+        # Extract two-digit decades (80s, 90s, 00s, 10s) -> 1980-1989, 1990-1999, 2000-2009, 2010-2019
         decade_pattern = r'\b(\d{2})s\b'
         decade_matches = re.findall(decade_pattern, query_lower)
         for match in decade_matches:
@@ -1193,6 +1242,7 @@ CRITICAL RULES:
 7. venue: When user asks for a specific venue (e.g. "Film Forum", "whatever is doing well at Film Forum"), set to the venue name string. Otherwise null.
 
 8. time_period: "month"|"week"|"now" only if user says "this month", "right now", "this week".
+   IMPORTANT: Do NOT set time_period when the user asks for library titles that are "relevant", "meaningful", or "topical" (e.g. "thrillers from the 2000s that are relevant right now"). In that context "right now" means topical/relevant, not exhibition schedule—date filters apply to library only.
 
 7. exhibition_date_start, exhibition_date_end: When the user asks for films playing on a specific date or date range (e.g. "playing on 2/14/2026", "between 2/1 and 2/14/2026"), set these to ISO date strings "YYYY-MM-DD". For a single date use the same for both. Use null if no exhibition date is mentioned.
 

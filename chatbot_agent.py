@@ -1239,10 +1239,19 @@ class ChatbotAgent:
             elif ex_type == "documentary" and "genres" in filtered_df.columns:
                 filtered_df = filtered_df[filtered_df["genres"].astype(str).str.lower().str.contains("documentary", na=False)]
 
+        # Exhibition year filter: when user asks for "playing from 2000s", "exhibited in 1990", filter exhibitions by release_year
+        if getattr(intent, "filter_year_to_exhibition", False) and "release_year" in filtered_df.columns:
+            if intent.year_start is not None:
+                filtered_df = filtered_df[filtered_df["release_year"].notna() & (filtered_df["release_year"] >= intent.year_start)]
+            if intent.year_end is not None:
+                filtered_df = filtered_df[filtered_df["release_year"].notna() & (filtered_df["release_year"] <= intent.year_end)]
+
         # Time period filter: skip when matching to a specific film. We use all exhibitions
         # of that film; "this month" etc. is about when we promote, not when they screen.
         # Also skip when user specified a concrete exhibition date (e.g. "in march") - that is more specific.
-        if intent.time_period and not intent.match_to_specific_film and not (intent.exhibition_date_start or intent.exhibition_date_end):
+        # Skip when apply_time_period_to_exhibitions=False (library-focused: "relevant", "meaningful", "topical").
+        apply_time = getattr(intent, "apply_time_period_to_exhibitions", True)
+        if apply_time and intent.time_period and not intent.match_to_specific_film and not (intent.exhibition_date_start or intent.exhibition_date_end):
             today = datetime.now().date()
             if intent.time_period == "now" or intent.time_period == "week":
                 end_date = today + timedelta(days=7)
