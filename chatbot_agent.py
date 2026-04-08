@@ -32,6 +32,37 @@ except ImportError:
     OpenAI = None
 
 # Territory code -> accepted country values (code + full name) for filtering
+# TMDB-style genre strings often say "Science Fiction" while queries / LLM use "sci-fi".
+_GENRE_SUBSTRING_ALIASES: Dict[str, List[str]] = {
+    "sci-fi": ["sci-fi", "science fiction"],
+    "science fiction": ["sci-fi", "science fiction"],
+}
+
+
+def _expand_genre_column_filter_terms(value: Any) -> List[str]:
+    """Expand column_filter genres (scalar or list) to lowercase substrings for regex OR match."""
+    items: List[Any] = value if isinstance(value, list) else [value]
+    out: List[str] = []
+    for v in items:
+        if v is None:
+            continue
+        s = str(v).strip().lower()
+        if not s:
+            continue
+        if s in _GENRE_SUBSTRING_ALIASES:
+            out.extend(_GENRE_SUBSTRING_ALIASES[s])
+        else:
+            out.append(s)
+    # preserve order, unique
+    seen = set()
+    uniq: List[str] = []
+    for t in out:
+        if t not in seen:
+            seen.add(t)
+            uniq.append(t)
+    return uniq
+
+
 TERRITORY_COUNTRY_ALIASES = {
     "US": ("US", "USA"),
     "UK": ("UK", "GB"),
@@ -925,7 +956,10 @@ class ChatbotAgent:
                 # Any of
                 if not value:
                     continue
-                val_strs = [str(v).strip().lower() for v in value if v is not None and str(v).strip()]
+                if col == "genres":
+                    val_strs = _expand_genre_column_filter_terms(value)
+                else:
+                    val_strs = [str(v).strip().lower() for v in value if v is not None and str(v).strip()]
                 if not val_strs:
                     continue
                 ser_str = ser.astype(str).str.lower()
@@ -944,7 +978,12 @@ class ChatbotAgent:
                     except (TypeError, ValueError):
                         filtered_df = filtered_df[ser_str.str.contains(re.escape(val_str), na=False)]
                 else:
-                    filtered_df = filtered_df[ser_str.str.contains(re.escape(val_str), na=False)]
+                    if col == "genres":
+                        gterms = _expand_genre_column_filter_terms(value)
+                        pat = "|".join(re.escape(t) for t in gterms)
+                        filtered_df = filtered_df[ser_str.str.contains(pat, na=False)]
+                    else:
+                        filtered_df = filtered_df[ser_str.str.contains(re.escape(val_str), na=False)]
         return filtered_df
 
     def _filter_library_by_text_terms(
@@ -1022,15 +1061,11 @@ class ChatbotAgent:
         
         # Genre filters (expand aliases so "sci-fi" matches "science fiction" in library data)
         if intent.genres:
-            genre_aliases: Dict[str, List[str]] = {
-                "sci-fi": ["sci-fi", "science fiction"],
-                "science fiction": ["sci-fi", "science fiction"],
-            }
             pattern_parts: List[str] = []
             for g in intent.genres:
                 g_lower = (g or "").strip().lower()
-                if g_lower in genre_aliases:
-                    pattern_parts.extend(genre_aliases[g_lower])
+                if g_lower in _GENRE_SUBSTRING_ALIASES:
+                    pattern_parts.extend(_GENRE_SUBSTRING_ALIASES[g_lower])
                 else:
                     pattern_parts.append(g_lower)
             pattern = "|".join(re.escape(p) for p in set(pattern_parts))
@@ -1096,7 +1131,12 @@ class ChatbotAgent:
         
         # Dynamic column_filters (any library column)
         if intent.column_filters:
-            filtered_df = self._apply_column_filters_to_df(filtered_df, intent.column_filters)
+            cf = dict(intent.column_filters)
+            # intent.genres already applied with sci-fi <-> science fiction; LLM often adds
+            # column_filters["genres"] = "sci-fi" which would zero out "Science Fiction" rows.
+            if intent.genres and "genres" in cf:
+                del cf["genres"]
+            filtered_df = self._apply_column_filters_to_df(filtered_df, cf)
         
         return filtered_df
     
