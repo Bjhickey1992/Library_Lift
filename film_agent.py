@@ -1494,6 +1494,13 @@ Return ONLY valid JSON: {{"thematic_descriptors": "...", "stylistic_descriptors"
 
             if all_raw_rows:
                 df_raw = pd.DataFrame(all_raw_rows)
+                # Excel cannot store timezone-aware datetimes.
+                for col in df_raw.columns:
+                    df_raw[col] = df_raw[col].apply(
+                        lambda v: v.astimezone(dt.timezone.utc).replace(tzinfo=None)
+                        if isinstance(v, dt.datetime) and v.tzinfo is not None and v.utcoffset() is not None
+                        else v
+                    )
                 df_raw.to_excel(raw_output_path, index=False)
                 print(f"[ExhibitionAgent]   Saved {len(df_raw)} raw screenings to {raw_output_path}")
 

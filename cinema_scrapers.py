@@ -577,12 +577,19 @@ def filter_screenings_to_window(
     those screenings always pass the filter. That can make per-venue counts much higher than
     a real 4-week calendar; the caller may apply a per-venue cap to avoid full calendar dumps.
     """
-    now = now or dt.datetime.now()
+    def _as_naive(d: dt.datetime) -> dt.datetime:
+        """Normalize both aware/naive datetimes into naive UTC-like values for safe comparison."""
+        if d.tzinfo is not None and d.utcoffset() is not None:
+            return d.astimezone(dt.timezone.utc).replace(tzinfo=None)
+        return d
+
+    now = _as_naive(now or dt.datetime.now())
     start = now - dt.timedelta(days=14)  # Include films that started up to 14 days ago (more lenient)
     end = now + dt.timedelta(weeks=weeks_ahead)
     out = []
     for s in screenings:
-        if start <= s.start_dt <= end:
+        s_start = _as_naive(s.start_dt)
+        if start <= s_start <= end:
             out.append(s)
     return out
 
